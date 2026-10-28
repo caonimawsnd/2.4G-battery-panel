@@ -322,9 +322,8 @@ class TrayApp:
             return
         import subprocess
         try:
-            subprocess.Popen([tc.pythonw_path(),
-                              os.path.join(BASE_DIR, "my_devices.py")],
-                             cwd=BASE_DIR, creationflags=0x00000008)
+            subprocess.Popen(tc.panel_command(), cwd=BASE_DIR,
+                             creationflags=0x00000008)
             self.log("已打开简洁界面")
         except Exception as e:
             self.log(f"打开界面失败：{e}")

@@ -17,7 +17,29 @@ from typing import Optional
 import win_link
 import win_shell
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+def is_frozen() -> bool:
+    """是否运行在 PyInstaller 打包出来的 exe 里。"""
+    return bool(getattr(sys, "frozen", False))
+
+
+def app_dir() -> str:
+    """程序所在目录：打包后是 exe 所在目录，脚本模式是源码目录。
+
+    打包后 __file__ 指向解包出来的临时目录（_MEIPASS），配置文件和 PID
+    文件必须落在 exe 旁边，否则每次启动都会"丢配置"。
+    """
+    if is_frozen():
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def resource_path(name: str) -> str:
+    """随 exe 一起释放的只读资源（图标等）；脚本模式下就在源码目录。"""
+    base = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, name)
+
+
+BASE_DIR = app_dir()
 CONFIG_PATH = os.path.join(BASE_DIR, "tray_config.json")
 PID_FILE = os.path.join(BASE_DIR, "tray_pid.txt")
 
@@ -87,16 +109,39 @@ def save_config(cfg: dict) -> None:
 # 开机自启：启动文件夹里的快捷方式（.lnk），不再用注册表
 # --------------------------------------------------------------------------
 def pythonw_path() -> str:
+    if is_frozen():
+        return sys.executable          # exe 本身就是窗口程序，不会再弹黑窗
     exe = sys.executable or ""
     cand = os.path.join(os.path.dirname(exe), "pythonw.exe")
     return cand if os.path.exists(cand) else exe
 
 
 def tray_script() -> str:
-    return os.path.join(BASE_DIR, "tray_app.py")
+    return "" if is_frozen() else os.path.join(BASE_DIR, "tray_app.py")
+
+
+def tray_launch_args() -> str:
+    """托盘进程的命令行参数（给 .lnk / 快捷方式用）。"""
+    return "--tray" if is_frozen() else f'"{tray_script()}"'
+
+
+def tray_command() -> list:
+    """启动托盘进程的完整命令行。"""
+    if is_frozen():
+        return [sys.executable, "--tray"]
+    return [pythonw_path(), tray_script()]
+
+
+def panel_command() -> list:
+    """打开简洁面板的完整命令行。"""
+    if is_frozen():
+        return [sys.executable]
+    return [pythonw_path(), os.path.join(BASE_DIR, "my_devices.py")]
 
 
 def autostart_command() -> str:
+    if is_frozen():
+        return f'"{sys.executable}" --tray'
     return f'"{pythonw_path()}" "{tray_script()}"'
 
 
@@ -207,7 +252,7 @@ def set_autostart(enabled: bool) -> bool:
     if enabled:
         ok = win_shell.create_shortcut(
             startup_lnk(), pythonw_path(),
-            arguments=f'"{tray_script()}"',
+            arguments=tray_launch_args(),
             workdir=BASE_DIR,
             description="设备电量托盘：常驻显示 ATK 鼠标 / DARKRIM 耳机电量")
         _set_startup_approved(True)
@@ -327,8 +372,8 @@ def start_tray_app(wait_timeout: float = 6.0) -> bool:
         return True
     cleanup_zombie()
     try:
-        subprocess.Popen([pythonw_path(), os.path.join(BASE_DIR, "tray_app.py")],
-                         cwd=BASE_DIR, creationflags=0x00000008)
+        subprocess.Popen(tray_command(), cwd=BASE_DIR,
+                         creationflags=0x00000008)
     except Exception:
         return False
     return wait_for_tray(wait_timeout)

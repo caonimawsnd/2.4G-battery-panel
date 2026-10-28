@@ -15,6 +15,12 @@ tray_config.json
 # 本地生成的快捷方式
 *.lnk
 
+# 打包相关
+.venv/
+build/
+dist/
+tools/_icon_preview/
+
 # 编辑器 / 系统
 .vscode/
 .idea/

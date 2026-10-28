@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import queue
 import threading
 import time
@@ -209,6 +210,14 @@ def build_ui():
     root.configure(bg=BG)
     root.geometry("680x470")
     root.minsize(620, 440)
+
+    # 窗口 / 任务栏图标（打包后图标在 _MEIPASS 里，脚本模式在源码目录）
+    try:
+        ico = tc.resource_path("app.ico")
+        if os.path.exists(ico):
+            root.iconbitmap(default=ico)
+    except Exception:
+        pass
 
     style = ttk.Style(root)
     style.theme_use("clam")
