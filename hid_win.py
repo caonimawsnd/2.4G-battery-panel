@@ -495,6 +495,52 @@ def enumerate_hid() -> list[HidInterface]:
     return result
 
 
+def find_interface(vid: int, usage_page: Optional[int] = None,
+                   output_len: int = 0, pid: Optional[int] = None,
+                   product_hint: str = "",
+                   interfaces: Optional[list["HidInterface"]] = None
+                   ) -> Optional["HidInterface"]:
+    """按 VID（+ 可选 usage page）挑一个接口，同厂多设备时尽量挑对。
+
+    只按「VID + usage_page 命中第一个」是不够的：同一厂商的键盘、鼠标、
+    接收器经常共用同一个厂商页，而 SetupAPI 的枚举顺序并不保证稳定。
+    这里改成在同一组候选里打分，分数相同时取枚举顺序靠前的那个：
+
+        output_len 精确匹配                +8
+        产品名包含 product_hint            +4
+        该接口有 Output Report（能发命令）  +2
+        PID 精确匹配                       +2
+        厂商自定义页（>= 0xFF00）           +1
+
+    注意 usage_page 一旦给出就是硬过滤（保持原来的语义：找不到就返回 None，
+    方便调用方用 `find_interface(a) or find_interface(b)` 写回退链）。
+    """
+    items = [d for d in (interfaces if interfaces is not None else enumerate_hid())
+             if d.vid == vid]
+    if pid is not None:
+        items = [d for d in items if d.pid == pid]
+    if usage_page is not None:
+        items = [d for d in items if d.usage_page == usage_page]
+    if not items:
+        return None
+
+    def score(d: "HidInterface") -> int:
+        s = 0
+        if output_len and d.output_len == output_len:
+            s += 8
+        if product_hint and product_hint.lower() in (d.product or "").lower():
+            s += 4
+        if d.output_len:
+            s += 2
+        if pid is not None and d.pid == pid:
+            s += 2
+        if d.is_vendor_page:
+            s += 1
+        return s
+
+    return max(items, key=score)
+
+
 def _probe_interface(path: str) -> HidInterface:
     """打开一个 HID 接口并读取它的属性与能力表。"""
     vid, pid = _parse_vid_pid(path)

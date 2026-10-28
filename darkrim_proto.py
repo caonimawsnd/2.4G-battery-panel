@@ -129,15 +129,12 @@ def parse_frame(report: bytes) -> Optional[Frame]:
 
 
 def find_interface() -> Optional[hw.HidInterface]:
-    """找到 dongle 的命令接口（0xFF02:0x0002，65 字节）。"""
-    for d in hw.enumerate_hid():
-        if d.vid == VID and d.usage_page == USAGE_PAGE and d.output_len == REPORT_LEN:
-            return d
-    # 放宽条件
-    for d in hw.enumerate_hid():
-        if d.vid == VID and d.usage_page == USAGE_PAGE:
-            return d
-    return None
+    """找到 dongle 的命令接口（0xFF02:0x0002，优先 65 字节）。
+
+    65 字节的精确匹配不再单列一轮「放宽条件」：hid_win.find_interface 会给
+    output_len 精确匹配的候选加 8 分，没有精确匹配时自然退回其它候选。
+    """
+    return hw.find_interface(VID, usage_page=USAGE_PAGE, output_len=REPORT_LEN)
 
 
 def query(dev: HidDevice, seq: int, tlv_type: int, ch: int = CH_LOCAL,
@@ -194,17 +191,19 @@ def read_info(iface: Optional[hw.HidInterface] = None,
                 seq = (seq + 1) & 0xFF
                 return out
 
+            got_reply = False
             # 先问电量（TLV 0x01）
             for f in do(TLV_BATTERY):
+                got_reply = True
                 for t, v in f.tlvs():
                     if t == TLV_BATTERY and len(v) >= 1:
                         info.battery_raw = v[0]
                         info.battery = v[0] if v[0] <= 100 else None
-                        info.online = True
                         info.raw_tlvs.append((t, v.hex(" ")))
             # 再问设备名、固件、地址、状态
             for tlv in (TLV_NAME, TLV_FW_DONGLE, TLV_FW_HEADSET, 0x0B, 0x06, 0x09):
                 for f in do(tlv):
+                    got_reply = True
                     for t, v in f.tlvs():
                         if t == TLV_NAME:
                             info.name = _ascii_from_tlv(v)
@@ -218,10 +217,16 @@ def read_info(iface: Optional[hw.HidInterface] = None,
                             info.status_code = v[0]
                         if t not in (0x03, 0x14):
                             info.raw_tlvs.append((t, v.hex(" ") if v else "-"))
-            info.online = True
-            info.detail = (f"设备={info.name or '?'} 固件(dongle/耳机)="
-                           f"{info.dongle_firmware or '?'}/{info.headset_firmware or '?'} "
-                           f"状态码={info.status_code}")
+            # online 只能由「真的收到回复」决定。原先这里是无条件置 True，
+            # 导致 dongle 插着但耳机没开机时 online 仍然为真，上层拿不到
+            # 「耳机没连上」这个信息。
+            info.online = got_reply
+            if got_reply:
+                info.detail = (f"设备={info.name or '?'} 固件(dongle/耳机)="
+                               f"{info.dongle_firmware or '?'}/{info.headset_firmware or '?'} "
+                               f"状态码={info.status_code}")
+            else:
+                info.detail = "dongle 已找到，但没有任何回复（耳机没开机或没连上）"
     except Exception as e:
         info.detail = f"读取失败：{e}"
     return info

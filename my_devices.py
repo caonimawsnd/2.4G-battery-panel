@@ -46,11 +46,13 @@ class Reading:
 
 
 def _find(vid: int, usage_page: int, output_len: int = 0) -> Optional[HidInterface]:
-    for d in hw.enumerate_hid():
-        if d.vid == vid and d.usage_page == usage_page:
-            if not output_len or d.output_len == output_len:
-                return d
-    return None
+    """挑一个接口；打分逻辑统一放在 hid_win.find_interface。
+
+    这里原先和 tray_app.py 各有一份「VID + usage_page 命中第一个就返回」的
+    实现，两份已经不一致了。同一厂商插多台设备时，枚举顺序靠前的未必是想要
+    的那台，现在统一按 output_len / 产品名 / 是否可写来打分。
+    """
+    return hw.find_interface(vid, usage_page=usage_page, output_len=output_len)
 
 
 def read_atk() -> Reading:

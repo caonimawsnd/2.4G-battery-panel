@@ -441,10 +441,14 @@ def _hidpp_feature_index(dev: HidDevice, rid: int, index: int, feature_id: int) 
     if not reply or _hidpp_error(reply) is not None:
         return None
     # 短报文 / 长报文的返回位置可能不同，逐个试探并验证
-    for pos in (6, 4, 5):
-        if len(reply) > pos and reply[pos]:
-            return reply[pos]
-    return None
+    # HID++ 2.0 的 getFeature 回复布局（长报文 0x11 与短报文 0x10 都一样）：
+    #   [0] reportID  [1] deviceIndex  [2] featureIndex(回显 0x00)
+    #   [3] function|swId  [4] featureIndex  [5] featureType  [6] featureVersion
+    # 原先按 (6, 4, 5) 顺序试探，byte 6 是 featureVersion，一旦非 0 就会把
+    # 版本号当成特性索引返回，后续所有特性调用全部失败。
+    if len(reply) <= 4:
+        return None
+    return reply[4] or None
 
 
 def strategy_logitech_hidpp(iface: HidInterface) -> Optional[BatteryResult]:
@@ -500,8 +504,10 @@ def _logitech_probe_index(dev: HidDevice, iface: HidInterface, rid: int,
     if fidx:
         reply = _hidpp_call(dev, rid, index, fidx, 0x00, [])
         if reply and _hidpp_error(reply) is None and len(reply) >= 6:
-            mv = reply[4] | (reply[5] << 8)
-            if 2000 <= mv <= 5000:
+            # 0x1001 getBatteryVoltage 的电压是 16 位**大端**（单位 mV），
+            # 原实现按小端拼，0F 51 会算成 0x510F=20751 而被范围判断丢掉。
+            mv = (reply[4] << 8) | reply[5]
+            if 1500 <= mv <= 6000:
                 return BatteryResult(
                     ok=True, level=None, voltage_mv=mv, status="unknown",
                     source="罗技 HID++ 2.0（0x1001 电池电压）",

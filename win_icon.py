@@ -28,7 +28,13 @@ DIGITS = {
     "8": ("111", "101", "111", "101", "111"),
     "9": ("111", "101", "111", "001", "111"),
     "%": ("101", "001", "010", "100", "101"),
+    # 设备离线时托盘画的是 "--"，缺这个字形的话整张位图全是透明像素，
+    # 托盘上会留下一个看不见的空白坑位（PR #5 报的就是这个问题）。
+    "-": ("000", "000", "111", "000", "000"),
 }
+
+# 兜底字形（"?"）：遇到没收录的字符时画它，绝不让图标变成全透明。
+GLYPH_FALLBACK = ("111", "001", "010", "000", "010")
 
 GLYPH_W, GLYPH_H = 3, 5
 
@@ -78,9 +84,7 @@ def render_rgba(text: str, size: int, color: tuple[int, int, int],
 
     # 逐字画
     for k, ch in enumerate(text):
-        glyph = DIGITS.get(ch)
-        if not glyph:
-            continue
+        glyph = DIGITS.get(ch) or GLYPH_FALLBACK
         gx = ox + k * (gw + gap)
         for gy, row in enumerate(glyph):
             for gxx, bit in enumerate(row):

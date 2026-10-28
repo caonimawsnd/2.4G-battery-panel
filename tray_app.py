@@ -165,11 +165,8 @@ TRAY_ICONS = [
 # 设备读取（轻量版）
 # --------------------------------------------------------------------------
 def _find_iface(vid: int, usage_page: int, output_len: int = 0):
-    for d in hw.enumerate_hid():
-        if d.vid == vid and d.usage_page == usage_page:
-            if not output_len or d.output_len == output_len:
-                return d
-    return None
+    """与 my_devices.py 共用同一套查找逻辑（hid_win.find_interface）。"""
+    return hw.find_interface(vid, usage_page=usage_page, output_len=output_len)
 
 
 def read_mouse() -> tuple[Optional[int], str]:

@@ -12,6 +12,9 @@ _hidcap.log
 # 个人设置（刷新间隔 / 开机自启开关）
 tray_config.json
 
+# 本地生成的快捷方式
+*.lnk
+
 # 编辑器 / 系统
 .vscode/
 .idea/
