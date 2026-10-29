@@ -3,11 +3,12 @@
 
     python tests/selftest.py
 
-覆盖四处改动：
+覆盖的改动：
   1. 托盘离线图标不再全透明
   2. HID++ getFeature 的 featureIndex 取第 4 字节
   3. HID++ 0x1001 电压按大端解析
   4. 同厂多接口按 output_len / 产品名打分选择
+  5. 雷柏状态广播解析（BB B0 …，末字节=电量）
 """
 
 import os
@@ -18,6 +19,7 @@ sys.path.insert(0, ROOT)
 
 import battery as bt
 import hid_win as hw
+import rapoo_proto as rp
 import win_icon
 
 fails = []
@@ -84,6 +86,17 @@ pick2 = hw.find_interface(0x373B, usage_page=0xFF05, product_hint="keyboard",
                           interfaces=cands)
 check("产品名提示生效", pick2 is not None and pick2.path == "a",
       f"got={getattr(pick2, 'path', None)}")
+
+print("[5] 雷柏状态广播解析")
+check("真机样本 BB B0 02 40 06 01 23 -> 35",
+      rp.parse_packet(bytes.fromhex("bbb00240060123")) == 35)
+check("另一读数 0x24 -> 36",
+      rp.parse_packet(bytes.fromhex("bbb00240060124")) == 36)
+check("满电 0x64 -> 100",
+      rp.parse_packet(bytes.fromhex("bbb00240060164")) == 100)
+check("超量程 0xC8 拒绝", rp.parse_packet(bytes.fromhex("bbb002400601c8")) is None)
+check("包头不对拒绝", rp.parse_packet(bytes.fromhex("20b00240060123")) is None)
+check("长度不足拒绝", rp.parse_packet(bytes.fromhex("bbb0024006")) is None)
 
 print()
 if fails:

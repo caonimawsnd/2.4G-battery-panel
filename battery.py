@@ -6,6 +6,8 @@ battery.py —— 电量读取核心
 
   A. 标准 HID 电量字段（Usage Page 0x0006 / Usage 0x0020 Battery Strength，
      以及数字化仪页 0x000D/0x003B、电池系统页 0x0085 等）—— 读 Feature Report
+  A2. DARKRIM 耳机私有 TLV 协议
+  A3. 雷柏 24AE:184C 被动状态广播（BB B0 …，末字节=电量）
   B. 已收录的厂商协议（Endgame Gear / VAXEE / Nordic nRF ...）
   C. 罗技 HID++ 2.0（Feature 0x1000 / 0x1004 / 0x1001）
   D. 用户自定义协议（protocols_user.json，由界面上的“手动标定”生成）
@@ -23,6 +25,7 @@ from typing import Callable, Optional
 
 import hid_win as hw
 import darkrim_proto as drp
+import rapoo_proto as rapoo
 from hid_win import HidDevice, HidError, HidInterface, HidP_Feature, HidP_Input
 
 USER_PROTOCOL_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -276,6 +279,23 @@ def strategy_darkrim(iface: HidInterface) -> Optional[BatteryResult]:
         extra={"name": info.name, "dongle_fw": info.dongle_firmware,
                "headset_fw": info.headset_firmware, "address": info.address,
                "status_code": info.status_code, "tlvs": info.raw_tlvs},
+    )
+
+
+# --------------------------------------------------------------------------
+# 策略 A3：雷柏 24AE:184C —— 被动状态广播（BB B0 …，末字节=电量）
+# --------------------------------------------------------------------------
+def strategy_rapoo(iface: HidInterface) -> Optional[BatteryResult]:
+    if (iface.vid != rapoo.VID or iface.usage_page != rapoo.USAGE_PAGE
+            or iface.usage != rapoo.USAGE or iface.input_len != rapoo.PKT_LEN):
+        return None
+    info = rapoo.read_info(listen=10.0)
+    if info.battery is None:
+        return BatteryResult(ok=False, source="雷柏状态广播", detail=info.detail)
+    return BatteryResult(
+        ok=True, level=info.battery, raw_level=info.battery,
+        status="unknown", source="雷柏状态广播（BB B0…，末字节=电量）",
+        detail=info.detail, raw=info.raw,
     )
 
 
@@ -680,6 +700,7 @@ def read_battery(iface: HidInterface, listen_seconds: float = 3.0,
     steps = [
         ("标准 HID 电量字段", lambda: strategy_standard_battery_usage(iface)),
         ("DARKRIM 私有协议", lambda: strategy_darkrim(iface)),
+        ("雷柏状态广播", lambda: strategy_rapoo(iface)),
         ("厂商协议", lambda: strategy_vendor_protocol(iface)),
         ("罗技 HID++", lambda: strategy_logitech_hidpp(iface)),
     ]

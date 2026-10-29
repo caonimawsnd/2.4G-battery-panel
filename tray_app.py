@@ -37,8 +37,8 @@ from ctypes import wintypes
 from typing import Optional
 
 import hid_win as hw
-import battery as bt
-import darkrim_proto as drp
+import rapoo_proto as rp
+import aula_proto as ap
 import win_icon
 import tray_common as tc
 
@@ -156,36 +156,28 @@ KERNEL32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL,
 
 TRAY_ICONS = [
     # (uID, key, 提示名, 是否带底板)
-    (1, "mouse", "ATK 鼠标", False),
-    (2, "headset", "DARKRIM 耳机", True),
+    (1, "rapoo", "雷柏鼠标", False),
+    (2, "aula", "狼蛛键盘", True),
 ]
 
 
 # --------------------------------------------------------------------------
 # 设备读取（轻量版）
 # --------------------------------------------------------------------------
-def _find_iface(vid: int, usage_page: int, output_len: int = 0):
-    """与 my_devices.py 共用同一套查找逻辑（hid_win.find_interface）。"""
-    return hw.find_interface(vid, usage_page=usage_page, output_len=output_len)
-
-
 def read_mouse() -> tuple[Optional[int], str]:
-    iface = _find_iface(0x373B, 0xFF05, 64) or _find_iface(0x373B, 0xFF02)
-    if iface is None:
-        return None, "没找到接收器"
+    """雷柏 2.4G 鼠标：被动状态广播，约 4~10 秒一包。"""
     try:
-        res = bt.strategy_vendor_protocol(iface)
+        return rp.read_battery_only(timeout=10.0)
     except Exception as e:
         return None, f"读取失败：{e}"
-    if res is None:
-        return None, "没有可用的读取方式"
-    if res.ok:
-        return res.level, ""
-    return None, res.detail or "无回复（动一下鼠标）"
 
 
-def read_headset() -> tuple[Optional[int], str]:
-    return drp.read_battery_only(timeout=0.4)
+def read_keyboard() -> tuple[Optional[int], str]:
+    """狼蛛 F87 键盘（2.4G）：接收器在线检测，协议待标定。"""
+    try:
+        return ap.read_battery_only(timeout=2.0)
+    except Exception as e:
+        return None, f"读取失败：{e}"
 
 
 # --------------------------------------------------------------------------
@@ -300,16 +292,16 @@ class TrayApp:
 
     def _worker(self, hwnd: int) -> None:
         try:
-            self.levels["mouse"] = read_mouse()
-            self.levels["headset"] = read_headset()
+            self.levels["rapoo"] = read_mouse()
+            self.levels["aula"] = read_keyboard()
         except Exception:
             self.log("读取异常:\n" + traceback.format_exc())
         USER32.PostMessageW(hwnd, MSG_REFRESH_DONE, 0, 0)
 
     def on_refresh_done(self) -> None:
         self.busy = False
-        m, h = self.levels["mouse"], self.levels["headset"]
-        self.log(f"刷新完成：鼠标={m[0]}（{m[1] or 'ok'}） 耳机={h[0]}（{h[1] or 'ok'}）")
+        m, h = self.levels["rapoo"], self.levels["aula"]
+        self.log(f"刷新完成：鼠标={m[0]}（{m[1] or 'ok'}） 键盘={h[0]}（{h[1] or 'ok'}）")
         self.update_icons()
 
     # ---- 打开简洁界面 ---------------------------------------------------

@@ -20,12 +20,10 @@ import traceback
 from dataclasses import dataclass
 from typing import Optional
 
-import hid_win as hw
-import battery as bt
-import darkrim_proto as drp
+import rapoo_proto as rp
+import aula_proto as ap
 import tray_common as tc
 import win_link
-from hid_win import HidInterface
 
 
 # ==========================================================================
@@ -46,73 +44,48 @@ class Reading:
         return self.level is not None
 
 
-def _find(vid: int, usage_page: int, output_len: int = 0) -> Optional[HidInterface]:
-    """挑一个接口；打分逻辑统一放在 hid_win.find_interface。
-
-    这里原先和 tray_app.py 各有一份「VID + usage_page 命中第一个就返回」的
-    实现，两份已经不一致了。同一厂商插多台设备时，枚举顺序靠前的未必是想要
-    的那台，现在统一按 output_len / 产品名 / 是否可写来打分。
-    """
-    return hw.find_interface(vid, usage_page=usage_page, output_len=output_len)
-
-
-def read_atk() -> Reading:
-    """ATK / VXE 无线鼠标（内置协议 2）。"""
-    r = Reading("ATK 鼠标", "无接收器")
-    iface = _find(0x373B, 0xFF05, 64) or _find(0x373B, 0xFF02)
-    if iface is None:
-        r.error = "没找到接收器（请把 2.4G 接收器插上）"
-        return r
-    r.subtitle = f"{iface.vid_pid} · {iface.product or '2.4G 接收器'}"
+def read_rapoo() -> Reading:
+    """雷柏 2.4G 无线鼠标（24AE:184C，被动状态广播）。"""
+    r = Reading("雷柏鼠标", "未连接")
     try:
-        res = bt.strategy_vendor_protocol(iface) or bt.strategy_standard_battery_usage(iface)
-    except Exception as e:
-        r.error = f"读取出错：{e}"
-        return r
-    if res is None:
-        r.error = "这台设备没有可用的读取方式"
-        return r
-    if res.ok:
-        r.level = res.level
-        r.status = res.status_text
-        r.detail = res.source
-    else:
-        r.error = res.detail or "读取失败"
-    return r
-
-
-def read_darkrim() -> Reading:
-    """DARKRIM SHADOW 耳机（杰理方案 dongle，逆向协议）。"""
-    r = Reading("DARKRIM 耳机", "未连接")
-    try:
-        info = drp.read_info(timeout=0.35)
+        info = rp.read_info(listen=10.0)
     except Exception as e:
         r.error = f"读取出错：{e}"
         return r
     if not info.online:
-        r.error = info.detail or "没找到 dongle"
+        r.error = info.detail or "没找到雷柏接收器"
         return r
-    r.subtitle = f"3654:6901 · {info.name or 'DARKRIM'}"
+    r.subtitle = f"{rp.VID:04X}:184C · 雷柏 Gaming Device"
     r.level = info.battery
     r.status = ""
-    r.detail = "私有 TLV 协议（TLV 0x01 = 电量）"
-    bits = []
-    if info.dongle_firmware:
-        bits.append(f"dongle 固件 {info.dongle_firmware}")
-    if info.headset_firmware:
-        bits.append(f"耳机固件 {info.headset_firmware}")
-    if info.address:
-        bits.append(f"地址 {info.address}")
-    if info.status_code is not None:
-        bits.append(f"状态码 {info.status_code}")
-    r.extra = " · ".join(bits)
-    if r.level is None and not r.error:
-        r.error = "耳机没有上报电量（请确认耳机已开机并连上）"
+    r.detail = "私有状态广播（7字节 BB B0 …，末字节=电量）"
+    r.extra = info.detail
+    return r
+
+
+def read_aula() -> Reading:
+    """狼蛛 F87 三模键盘（2.4G 接收器 3554:FA09）。"""
+    r = Reading("狼蛛 F87 键盘", "未连接")
+    try:
+        info = ap.read_info(listen=2.0)
+    except Exception as e:
+        r.error = f"读取出错：{e}"
+        return r
+    if not info.dongle_present:
+        r.error = info.detail or "没找到 2.4G 接收器"
+        return r
+    r.subtitle = f"{ap.VID:04X}:{ap.PID:04X} · 2.4G Wireless Receiver"
+    if info.keyboard_alive:
+        # 键盘在线但电量协议还没标定出来
+        r.error = info.detail
+        r.extra = "样本：" + "  ".join(info.samples[:3]) if info.samples else ""
+    else:
+        r.error = info.detail
     return r
 
 
 def read_all() -> list[Reading]:
-    return [read_atk(), read_darkrim()]
+    return [read_rapoo(), read_aula()]
 
 
 # ==========================================================================
@@ -281,9 +254,9 @@ def build_ui():
     body.columnconfigure(1, weight=1, uniform="card")
     body.rowconfigure(0, weight=1)
 
-    card_atk = DeviceCard(body, "ATK 鼠标")
+    card_atk = DeviceCard(body, "雷柏鼠标")
     card_atk.frame.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-    card_dr = DeviceCard(body, "DARKRIM 耳机")
+    card_dr = DeviceCard(body, "狼蛛 F87 键盘")
     card_dr.frame.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
 
     foot = ttk.Label(root, text="正在读取…", style="Muted.TLabel", padding=(18, 4))
@@ -436,8 +409,8 @@ def build_ui():
             readings = read_all()
         except Exception:
             traceback.print_exc()
-            readings = [Reading("ATK 鼠标", "", error="读取异常"),
-                        Reading("DARKRIM 耳机", "", error="读取异常")]
+            readings = [Reading("雷柏鼠标", "", error="读取异常"),
+                        Reading("狼蛛 F87 键盘", "", error="读取异常")]
         results.put(("readings", readings))
 
     def refresh():
@@ -445,7 +418,7 @@ def build_ui():
             return
         state["busy"] = True
         btn.configure(state="disabled")
-        foot.configure(text="正在读取…（耳机的协议要几秒钟）")
+        foot.configure(text="正在读取…（雷柏的电量广播要等几秒钟）")
         threading.Thread(target=worker, daemon=True).start()
 
     def _reschedule():
