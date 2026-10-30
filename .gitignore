@@ -21,6 +21,15 @@ build/
 dist/
 tools/_icon_preview/
 
+# 本地生成/临时产物（生成的图标、预览图、临时脚本）
+tools/_*.png
+tools/preview_*.png
+tests/_*_tmp.py
+
+# Agent 工作记录
+.workbuddy/
+.workbuddy-ai/
+
 # 编辑器 / 系统
 .vscode/
 .idea/

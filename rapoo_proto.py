@@ -35,11 +35,22 @@ USAGE = 0x0002
 PKT_LEN = 7
 IDX_BATTERY = 6
 
+# 状态广播完整语义（与雷柏官方 AHUB 2.0 驱动解析一致）。
+# 注意：AHUB 的偏移基于去掉 report ID 后的 6 字节载荷；
+# 我们的包是含 report ID 的 7 字节，故整包偏移 = 载荷偏移 + 1：
+#   [0]=0xBB(report id) [1]=0xB0 标识  [2]=连接模式(0x02=2.4G)
+#   [3:5]=当前DPI(uint16 LE)  [5]=电量有效标志(0/1)  [6]=电量百分比
+IDX_MODE = 2
+IDX_DPI = 3        # 2 字节 LE
+IDX_VALID = 5
+
 
 @dataclass
 class RapooInfo:
     online: bool = False            # 是否收到过状态广播
     battery: Optional[int] = None   # 电量百分比（末字节）
+    dpi: Optional[int] = None       # 当前 DPI（广播第 2-3 字节，uint16 LE）
+    mode: Optional[int] = None      # 连接模式原始值（0x02=2.4G）
     packets: int = 0                # 收到的状态包数量
     values: List[int] = field(default_factory=list)   # 依次读到的电量原始值
     detail: str = ""
@@ -69,6 +80,24 @@ def parse_packet(pkt: bytes) -> Optional[int]:
         return None
     v = pkt[IDX_BATTERY]
     return v if 0 <= v <= 100 else None
+
+
+def parse_status(pkt: bytes) -> Optional[dict]:
+    """按官方语义解析完整状态包。合法返回 {battery, dpi, mode}，否则 None。"""
+    if len(pkt) < PKT_LEN or pkt[0] != 0xBB or pkt[1] != 0xB0:
+        return None
+    battery = pkt[IDX_BATTERY]
+    if not 0 <= battery <= 100:
+        return None
+    dpi = pkt[IDX_DPI] | (pkt[IDX_DPI + 1] << 8)
+    valid = pkt[IDX_VALID]
+    return {
+        "battery": battery,
+        # 有效标志非 0/1 的包视为异常，DPI 仍然上报（广播格式稳定）
+        "battery_valid": valid in (0, 1),
+        "dpi": dpi if 50 <= dpi <= 30000 else None,
+        "mode": pkt[IDX_MODE],
+    }
 
 
 def read_info(listen: float = 10.0, stop_flag=None) -> RapooInfo:
@@ -105,6 +134,11 @@ def read_info(listen: float = 10.0, stop_flag=None) -> RapooInfo:
             info.values.append(level)
             if not info.raw:
                 info.raw = pkt
+                st = parse_status(pkt)
+                if st:
+                    info.battery = st["battery"]
+                    info.dpi = st["dpi"]
+                    info.mode = st["mode"]
             if info.battery is None:
                 info.battery = level
                 grace_until = time.monotonic() + 3.0
@@ -116,8 +150,12 @@ def read_info(listen: float = 10.0, stop_flag=None) -> RapooInfo:
         except Exception:
             pass
     if info.online:
-        info.detail = (f"状态广播 x{info.packets}，电量读数 "
-                       f"{info.values}（末字节，实测随时间缓降）")
+        parts = [f"状态广播 x{info.packets}，电量读数 {info.values}"]
+        if info.dpi is not None:
+            parts.append(f"当前 DPI {info.dpi}")
+        if info.mode is not None:
+            parts.append(f"模式 0x{info.mode:02X}")
+        info.detail = "；".join(parts)
     elif not info.detail:
         info.detail = "没有收到状态广播（鼠标可能休眠了，动一动鼠标再试）"
     return info

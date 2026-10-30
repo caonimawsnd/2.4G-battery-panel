@@ -27,7 +27,27 @@ import bt_battery as btb
 from hid_win import HidDevice, HidError, HidInterface
 
 APP_TITLE = "设备电量查看器 · 2.4G 无线外设电池检测"
-ACCENT = "#4f8cff"
+ACCENT = "#1f6feb"
+
+
+def _enable_dpi_awareness() -> float:
+    """声明进程 DPI 感知并返回缩放因子（96 DPI = 1.0）。
+
+    必须在创建 Tk 窗口之前调用：否则 Windows 会把整个窗口位图拉伸，
+    高分屏（125% / 150% 缩放）上字体全部发糊。
+    """
+    import ctypes
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+    try:
+        return max(1.0, ctypes.windll.user32.GetDpiForSystem() / 96.0)
+    except Exception:
+        return 1.0
 
 
 # ==========================================================================
@@ -99,56 +119,83 @@ def build_ui():
     import tkinter as tk
     from tkinter import ttk, messagebox, scrolledtext
 
-    BG = "#1b1c1f"
-    PANEL = "#232529"
-    PANEL2 = "#2b2e33"
-    FG = "#e8e8ea"
-    MUTED = "#9aa0a6"
+    BG = "#f0f3f7"
+    PANEL = "#ffffff"
+    PANEL2 = "#eef2f7"
+    BORDER = "#dde3ec"
+    FG = "#1f2937"
+    MUTED = "#5f6b7c"
     FONT = ("Microsoft YaHei UI", 10)
     FONT_SMALL = ("Consolas", 9)
+    C_OK, C_MID, C_LOW = "#3f855c", "#a87a2c", "#b3544d"
+
+    def lv_color(level) -> str:
+        if level is None:
+            return MUTED
+        return C_OK if level >= 60 else (C_MID if level >= 30 else C_LOW)
+
+    s = _enable_dpi_awareness()            # 创建窗口前必须先声明，否则字体发糊
+    def S(v):
+        return int(round(v * s))
 
     root = tk.Tk()
     root.title(APP_TITLE)
     root.configure(bg=BG)
-    root.geometry("1180x760")
-    root.minsize(980, 620)
+    root.geometry(f"{S(1180)}x{S(760)}")
+    root.minsize(S(980), S(620))
 
     style = ttk.Style(root)
     style.theme_use("clam")
     style.configure(".", background=BG, foreground=FG, font=FONT)
     style.configure("TFrame", background=BG)
-    style.configure("Panel.TFrame", background=PANEL)
+    style.configure("Panel.TFrame", background=PANEL, borderwidth=1,
+                    relief="solid", bordercolor=BORDER)
+    style.configure("PanelInner.TFrame", background=PANEL)
     style.configure("TLabel", background=BG, foreground=FG, font=FONT)
     style.configure("Panel.TLabel", background=PANEL, foreground=FG)
     style.configure("Muted.TLabel", background=BG, foreground=MUTED, font=("Microsoft YaHei UI", 9))
-    style.configure("H1.TLabel", background=BG, foreground=FG, font=("Microsoft YaHei UI", 15, "bold"))
-    style.configure("Big.TLabel", background=PANEL, foreground=ACCENT,
+    style.configure("H1.TLabel", background=BG, foreground=FG, font=("Microsoft YaHei UI", 16, "bold"))
+    style.configure("Big.TLabel", background=PANEL, foreground=MUTED,
                     font=("Microsoft YaHei UI", 34, "bold"))
-    style.configure("TButton", background=PANEL2, foreground=FG, borderwidth=0,
-                    focusthickness=0, padding=(12, 7), font=FONT)
+    style.configure("TButton", background=PANEL, foreground=FG, borderwidth=1,
+                    relief="solid", bordercolor=BORDER, focusthickness=0,
+                    padding=(S(12), S(7)), font=FONT)
     style.map("TButton",
-              background=[("active", "#3a3f47"), ("disabled", "#2a2c30")],
-              foreground=[("disabled", "#6b7076")])
-    style.configure("Accent.TButton", background=ACCENT, foreground="#ffffff")
-    style.map("Accent.TButton", background=[("active", "#6ea1ff"), ("disabled", "#33455f")])
-    style.configure("TNotebook", background=BG, borderwidth=0)
-    style.configure("TNotebook.Tab", background=PANEL, foreground=MUTED,
-                    padding=(16, 8), font=FONT)
+              background=[("active", "#e9eef6"), ("disabled", "#f6f8fb")],
+              foreground=[("disabled", MUTED)])
+    style.configure("Accent.TButton", background=ACCENT, foreground="#ffffff",
+                    borderwidth=0, bordercolor=ACCENT)
+    style.map("Accent.TButton",
+              background=[("active", "#1a5fd0"), ("disabled", "#b6c9e6")],
+              bordercolor=[("disabled", "#b6c9e6")])
+    style.configure("TNotebook", background=PANEL, borderwidth=0,
+                    tabmargins=(0, S(4), 0, 0))
+    style.configure("TNotebook.Tab", background=PANEL2, foreground=MUTED,
+                    padding=(S(18), S(8)), font=FONT, borderwidth=0)
     style.map("TNotebook.Tab",
-              background=[("selected", PANEL2)],
+              background=[("selected", PANEL)],
               foreground=[("selected", FG)])
     style.configure("Treeview", background=PANEL, fieldbackground=PANEL, foreground=FG,
-                    rowheight=25, borderwidth=0, font=FONT)
+                    rowheight=S(26), borderwidth=0, font=FONT)
     style.configure("Treeview.Heading", background=PANEL2, foreground=MUTED,
-                    font=("Microsoft YaHei UI", 9, "bold"), borderwidth=0)
-    style.map("Treeview", background=[("selected", "#35507e")],
-              foreground=[("selected", "#ffffff")])
-    style.configure("TEntry", fieldbackground=PANEL2, background=PANEL2,
-                    foreground=FG, insertcolor=FG, borderwidth=0)
-    style.configure("TCombobox", fieldbackground=PANEL2, background=PANEL2, foreground=FG)
-    style.configure("TCheckbutton", background=PANEL, foreground=FG, font=FONT)
-    style.configure("Vertical.TScrollbar", background=PANEL2, troughcolor=PANEL,
-                    borderwidth=0, arrowcolor=MUTED)
+                    font=("Microsoft YaHei UI", 9, "bold"), borderwidth=0,
+                    relief="flat", padding=(S(6), S(5)))
+    style.map("Treeview", background=[("selected", "#e1ecfb")],
+              foreground=[("selected", FG)])
+    style.configure("TEntry", fieldbackground=PANEL, background=PANEL,
+                    foreground=FG, insertcolor=FG, borderwidth=1,
+                    bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER,
+                    padding=S(4))
+    style.configure("TCombobox", fieldbackground=PANEL, background=PANEL,
+                    foreground=FG, arrowcolor=MUTED, bordercolor=BORDER,
+                    lightcolor=BORDER, darkcolor=BORDER, padding=4)
+    style.map("TCombobox", fieldbackground=[("readonly", PANEL)],
+              foreground=[("readonly", FG)])
+    style.configure("TCheckbutton", background=PANEL, foreground=FG, font=FONT,
+                    focuscolor=PANEL)
+    style.configure("Vertical.TScrollbar", background="#d5dde8",
+                    troughcolor=PANEL2, borderwidth=0, arrowcolor=MUTED)
+    style.configure("TSeparator", background=BORDER)
 
     # ---------------- 状态 ----------------
     state = {
@@ -162,19 +209,25 @@ def build_ui():
     ui_queue: "queue.Queue[tuple]" = queue.Queue()
 
     # ---------------- 顶部 ----------------
-    header = ttk.Frame(root, padding=(18, 14, 18, 8))
+    header = ttk.Frame(root, padding=(20, 16, 20, 10))
     header.pack(fill="x")
-    ttk.Label(header, text="设备电量查看器", style="H1.TLabel").pack(side="left")
-    ttk.Label(header, text="  2.4G 无线外设 / HID 电量读取",
-              style="Muted.TLabel").pack(side="left", pady=(6, 0))
+    header.columnconfigure(0, weight=1)
+
+    title_box = ttk.Frame(header, style="TFrame")
+    title_box.grid(row=0, column=0, sticky="w")
+    ttk.Label(title_box, text="设备电量查看器", style="H1.TLabel").pack(anchor="w")
+    ttk.Label(title_box, text="2.4G 无线外设 / HID 电量读取 · 协议调试台",
+              style="Muted.TLabel").pack(anchor="w")
 
     btn_scan = ttk.Button(header, text="① 扫描设备")
-    btn_scan.pack(side="right", padx=(8, 0))
+    btn_scan.grid(row=0, column=1, sticky="e", padx=(8, 0))
     btn_read = ttk.Button(header, text="② 读取选中设备电量", style="Accent.TButton")
-    btn_read.pack(side="right")
+    btn_read.grid(row=0, column=2, sticky="e", padx=(8, 0))
+
+    ttk.Separator(root, orient="horizontal").pack(fill="x", padx=20)
 
     # ---------------- 主体 ----------------
-    body = ttk.Frame(root, padding=(18, 6, 18, 6))
+    body = ttk.Frame(root, padding=(20, 10, 20, 8))
     body.pack(fill="both", expand=True)
     body.columnconfigure(0, weight=3, minsize=520)
     body.columnconfigure(1, weight=4)
@@ -202,10 +255,10 @@ def build_ui():
     sb = ttk.Scrollbar(left, orient="vertical", command=tree.yview)
     sb.grid(row=0, column=1, sticky="ns")
     tree.configure(yscrollcommand=sb.set)
-    tree.tag_configure("device", foreground="#ffffff")
-    tree.tag_configure("iface", foreground="#a9b0b8")
-    tree.tag_configure("bt", foreground="#9ecbff")
-    tree.tag_configure("hasbattery", foreground="#6ee7a8")
+    tree.tag_configure("device", foreground=FG)
+    tree.tag_configure("iface", foreground=MUTED)
+    tree.tag_configure("bt", foreground="#1a5fd0")
+    tree.tag_configure("hasbattery", foreground=C_OK)
 
     # 右：详情
     right = ttk.Frame(body, style="Panel.TFrame", padding=1)
@@ -217,7 +270,7 @@ def build_ui():
     nb.grid(row=0, column=0, sticky="nsew")
 
     # --- Tab 1: 电量 ---
-    tab_bat = ttk.Frame(nb, style="Panel.TFrame", padding=16)
+    tab_bat = ttk.Frame(nb, style="PanelInner.TFrame", padding=18)
     nb.add(tab_bat, text="电量")
     tab_bat.columnconfigure(0, weight=1)
 
@@ -236,8 +289,17 @@ def build_ui():
     progress = ttk.Progressbar(tab_bat, mode="determinate", maximum=100,
                                style="Battery.Horizontal.TProgressbar")
     style.configure("Battery.Horizontal.TProgressbar", background=ACCENT,
-                    troughcolor=PANEL2, borderwidth=0)
-    progress.grid(row=4, column=0, sticky="ew", pady=(2, 14))
+                    troughcolor=PANEL2, borderwidth=0, thickness=S(8))
+    progress.grid(row=4, column=0, sticky="ew", pady=(6, 14))
+
+    def set_level_pct(level):
+        """电量数字 + 进度条按电量着色；level 为 None 表示未知。"""
+        color = lv_color(level)
+        lab_level.configure(text=f"{level}%" if level is not None else "--",
+                            foreground=color)
+        style.configure("Battery.Horizontal.TProgressbar", background=color,
+                        troughcolor=PANEL2, borderwidth=0, thickness=S(8))
+        progress["value"] = level if level is not None else 0
 
     txt_detail = scrolledtext.ScrolledText(tab_bat, height=16, font=FONT_SMALL,
                                            bg=PANEL2, fg=FG, insertbackground=FG,
@@ -247,7 +309,7 @@ def build_ui():
     txt_detail.configure(state="disabled")
 
     # --- Tab 2: 接口详情 ---
-    tab_if = ttk.Frame(nb, style="Panel.TFrame", padding=12)
+    tab_if = ttk.Frame(nb, style="PanelInner.TFrame", padding=14)
     nb.add(tab_if, text="接口详情")
     tab_if.rowconfigure(0, weight=1)
     tab_if.columnconfigure(0, weight=1)
@@ -261,12 +323,12 @@ def build_ui():
     tree_if.grid(row=0, column=0, sticky="nsew")
 
     # --- Tab 3: 原始探测 ---
-    tab_raw = ttk.Frame(nb, style="Panel.TFrame", padding=12)
+    tab_raw = ttk.Frame(nb, style="PanelInner.TFrame", padding=14)
     nb.add(tab_raw, text="原始探测")
     tab_raw.columnconfigure(0, weight=1)
     tab_raw.rowconfigure(3, weight=1)
 
-    row1 = ttk.Frame(tab_raw, style="Panel.TFrame")
+    row1 = ttk.Frame(tab_raw, style="PanelInner.TFrame")
     row1.grid(row=0, column=0, sticky="ew", pady=(0, 8))
     btn_dump = ttk.Button(row1, text="转储全部 Feature Report")
     btn_dump.pack(side="left")
@@ -277,7 +339,7 @@ def build_ui():
 
     v_rid_raw = tk.StringVar(value="08")
     v_cmd = tk.StringVar(value="")
-    row2 = ttk.Frame(tab_raw, style="Panel.TFrame")
+    row2 = ttk.Frame(tab_raw, style="PanelInner.TFrame")
     row2.grid(row=1, column=0, sticky="ew", pady=(0, 6))
     ttk.Label(row2, text="Output Report ID(hex)", style="Panel.TLabel").pack(side="left")
     ttk.Entry(row2, textvariable=v_rid_raw, width=6).pack(side="left", padx=(6, 14))
@@ -292,13 +354,14 @@ def build_ui():
               font=("Microsoft YaHei UI", 9)).grid(row=2, column=0, sticky="w", pady=(0, 8))
 
     txt_raw = scrolledtext.ScrolledText(tab_raw, height=18, font=FONT_SMALL,
-                                        bg="#141517", fg="#b8f0c0",
-                                        insertbackground=FG, relief="flat", wrap="none")
+                                        bg="#f4f7fb", fg="#2b5aa0",
+                                        insertbackground=FG, relief="flat",
+                                        padx=10, pady=8, wrap="none")
     txt_raw.grid(row=3, column=0, sticky="nsew")
     txt_raw.configure(state="disabled")
 
     # --- Tab 4: 手动标定 ---
-    tab_cal = ttk.Frame(nb, style="Panel.TFrame", padding=12)
+    tab_cal = ttk.Frame(nb, style="PanelInner.TFrame", padding=14)
     nb.add(tab_cal, text="手动标定")
     tab_cal.columnconfigure(1, weight=1)
 
@@ -349,7 +412,7 @@ def build_ui():
     field(9, "充电状态字节下标", v_chg, "可留空")
     field(10, "协议名称", v_name, "")
 
-    row_b = ttk.Frame(tab_cal, style="Panel.TFrame")
+    row_b = ttk.Frame(tab_cal, style="PanelInner.TFrame")
     row_b.grid(row=11, column=0, columnspan=3, sticky="w", pady=(10, 8))
     btn_test = ttk.Button(row_b, text="测试读取", style="Accent.TButton")
     btn_test.pack(side="left")
@@ -359,15 +422,16 @@ def build_ui():
     btn_del.pack(side="left")
 
     txt_cal = scrolledtext.ScrolledText(tab_cal, height=12, font=FONT_SMALL,
-                                        bg=PANEL2, fg=FG, insertbackground=FG,
-                                        relief="flat", wrap="word")
+                                        bg="#f4f7fb", fg=FG, insertbackground=FG,
+                                        relief="flat", padx=10, pady=8, wrap="word")
     txt_cal.grid(row=12, column=0, columnspan=3, sticky="nsew")
     tab_cal.rowconfigure(12, weight=1)
     txt_cal.configure(state="disabled")
 
     # ---------------- 状态栏 ----------------
-    status = ttk.Label(root, text="就绪", style="Muted.TLabel", padding=(18, 6))
+    status = ttk.Label(root, text="就绪", style="Muted.TLabel", padding=(20, 8))
     status.pack(fill="x", side="bottom")
+    ttk.Separator(root, orient="horizontal").pack(side="bottom", fill="x", padx=20)
 
     # ======================================================================
     # 工具函数
@@ -552,9 +616,8 @@ def build_ui():
         btn_read.configure(state="disabled")
         status.configure(text="正在读取蓝牙耳机电量……")
         set_text(txt_detail, "")
-        lab_level.configure(text="--")
+        set_level_pct(None)
         lab_status.configure(text="")
-        progress["value"] = 0
 
         def work():
             return btb.refresh(btdev)
@@ -564,13 +627,12 @@ def build_ui():
             btn_read.configure(state="normal")
             lab_dev.configure(text=f"{d.name}   （蓝牙 HFP）")
             if d.battery:
-                lab_level.configure(text=f"{d.battery}%")
+                set_level_pct(d.battery)
                 lab_status.configure(text=f"来源：蓝牙 HFP 电量上报   {d.reason}")
-                progress["value"] = d.battery
             else:
-                lab_level.configure(text="未知")
+                set_level_pct(None)
+                lab_level.configure(text="未知", foreground=MUTED)
                 lab_status.configure(text=d.reason)
-                progress["value"] = 0
             sel = tree.selection()
             if sel:
                 vals = list(tree.item(sel[0], "values"))
@@ -606,9 +668,8 @@ def build_ui():
         btn_read.configure(state="disabled")
         status.configure(text="正在读取电量……")
         set_text(txt_detail, "")
-        lab_level.configure(text="--")
+        set_level_pct(None)
         lab_status.configure(text="")
-        progress["value"] = 0
 
         # 优先尝试：厂商接口 → 有值能力表的接口 → 其它可读接口
         def rank(d: HidInterface):
@@ -641,9 +702,8 @@ def build_ui():
             state["reading"] = False
             btn_read.configure(state="normal")
             if best and best.ok and best.level is not None:
-                lab_level.configure(text=f"{best.level}%")
+                set_level_pct(best.level)
                 lab_status.configure(text=f"{best.status_text}   来源：{best.source}")
-                progress["value"] = best.level
                 sel = tree.selection()
                 if sel:
                     vals = list(tree.item(sel[0], "values"))
@@ -651,12 +711,13 @@ def build_ui():
                         vals[3] = f"{best.level}%"
                         tree.item(sel[0], values=vals)
             elif best and best.ok:
-                lab_level.configure(text="电压模式")
+                set_level_pct(None)
+                lab_level.configure(text="电压模式", foreground=MUTED)
                 lab_status.configure(text=f"{best.detail}   来源：{best.source}")
             else:
-                lab_level.configure(text="未知")
+                set_level_pct(None)
+                lab_level.configure(text="未知", foreground=MUTED)
                 lab_status.configure(text="这台设备没有提供可读的电量（或需要手动标定）")
-                progress["value"] = 0
             if best and best.raw:
                 log.append("")
                 log.append("原始报文：" + best.raw.hex(" "))

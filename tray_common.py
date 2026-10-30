@@ -53,6 +53,10 @@ UI_TITLE = "我的设备电量"
 DEFAULT_CONFIG = {
     "interval": 60,        # 托盘轮询间隔（秒）
     "autostart": True,     # 开机自启
+    "ui_bg": None,         # 面板自定义背景：{"mode": "none"|"color"|"image", "value": ...}
+    "ui_dark": False,      # 面板暗色模式
+    "device_bg": {},       # 设备卡片自定义背景图：{"rapoo": "路径", "aula": "路径"}
+    "device_glass": {},    # 设备卡片毛玻璃：true=强制开，false=强制关，缺省跟随全局
 }
 
 INTERVAL_CHOICES = [(30, "30 秒"), (60, "1 分钟"), (120, "2 分钟"),
@@ -74,6 +78,43 @@ USER32.ShowWindow.restype = wintypes.BOOL
 USER32.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
 USER32.SetForegroundWindow.restype = wintypes.BOOL
 USER32.SetForegroundWindow.argtypes = [ctypes.c_void_p]
+
+SHCORE = None
+try:
+    SHCORE = ctypes.WinDLL("shcore", use_last_error=True)
+except OSError:
+    SHCORE = None
+
+
+def enable_dpi_awareness() -> float:
+    """声明进程 DPI 感知，返回系统缩放因子（96 DPI = 1.0）。
+
+    必须在创建任何 Tk 窗口之前调用：不声明的话，Windows 会把整个
+    窗口按位图拉伸到当前缩放比例（125% / 150% ……），字体和图标
+    全部发糊。声明之后窗口按原生像素渲染，文字清晰锐利。
+
+    返回的缩放因子用于把像素尺寸的窗口几何 / 自绘控件一起放大，
+    避免高分屏上窗口显得过小。字体是磅值，Tk 会自动跟随。
+    """
+    try:
+        SHCORE.SetProcessDpiAwareness(2)      # PROCESS_PER_MONITOR_DPI_AWARE
+    except Exception:
+        try:
+            USER32.SetProcessDPIAware()       # 兼容 Vista/Win7 或已被设置的情况
+        except Exception:
+            pass
+    dpi = 96
+    try:
+        dpi = USER32.GetDpiForSystem()
+    except Exception:
+        try:
+            USER32.GetDC.restype = ctypes.c_void_p
+            hdc = USER32.GetDC(None)
+            dpi = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88)   # LOGPIXELSX
+            USER32.ReleaseDC(None, hdc)
+        except Exception:
+            pass
+    return max(1.0, (dpi or 96) / 96.0)
 
 
 # --------------------------------------------------------------------------
@@ -136,7 +177,7 @@ def panel_command() -> list:
     """打开简洁面板的完整命令行。"""
     if is_frozen():
         return [sys.executable]
-    return [pythonw_path(), os.path.join(BASE_DIR, "my_devices.py")]
+    return [pythonw_path(), os.path.join(BASE_DIR, "ui_fluent.py")]
 
 
 def autostart_command() -> str:

@@ -1,4 +1,4 @@
-# 设备电量查看器
+# 2.4G 外设电量面板
 
 Windows 上读取 2.4G 无线外设电量的小工具。**纯 ctypes 调系统 DLL，零第三方依赖**——
 不用 hidapi、不用 pystray、不用 Pillow、不用 pywin32，装了 Python 就能跑。
@@ -157,6 +157,17 @@ prompt 里已经写好了硬性约束、协议模板、7 条会踩的坑和验�
 7. 空闲时 CPU 占用接近 0（实测 75 秒内 < 0.5 秒 CPU）。
 
 </details>
+
+## 本仓库与上游的关系
+
+本项目基于 [yszyszysz233/2.4G-battery-viewer](https://github.com/yszyszysz233/2.4G-battery-viewer)
+（上游 `main` @ `f0e983e`）修改而来，保留上游全部协议逆向成果与 README / PROMPT.md。
+相对上游的改动见 [本地修复说明.md](本地修复说明.md)，概要：
+
+- 修复设备离线时托盘图标全透明、HID++ 取错特性索引字节、`0x1001` 电压字节序
+- 三份各自为政的接口查找统一到 `hid_win.find_interface()` 并按候选打分
+- 适配本机设备：雷柏 2.4G 鼠标（`24AE:184C`，被动状态广播读电量）、狼蛛 F87 接收器框架
+- 打包为 exe（`--onedir`），面板改为 WebView2 界面并强制离线
 
 ## 环境要求
 

@@ -4,11 +4,14 @@
 做法：内置一套 3x5 点阵数字，按电量数值渲染成 RGBA 位图，
 再手写 ICO 文件格式，最后交给 LoadImageW 变成 HICON。
 支持 16/24/32 三种尺寸，Windows 会按 DPI 自动挑合适的那张。
+
+圆环电量图标：4x 超采样画环 + 进度弧，缩小平均得到平滑抗锯齿边缘。
 """
 
 from __future__ import annotations
 
 import ctypes
+import math
 import os
 import struct
 import tempfile
@@ -112,6 +115,67 @@ def render_rgba(text: str, size: int, color: tuple[int, int, int],
     return bytes(px)
 
 
+TRACK_COLOR = (150, 157, 168)      # 圆环轨道（浅灰）
+DASH_COLOR = (150, 156, 166)       # 离线时中心短横
+
+
+def render_ring_rgba(level: Optional[int], size: int,
+                     color: tuple[int, int, int],
+                     plate: bool = False, plate_color=(28, 30, 34, 235)) -> bytes:
+    """圆环电量图标：level=None 画灰色空环 + 中心短横（离线）。
+
+    4x 超采样后按块平均，得到抗锯齿的平滑圆环。
+    plate 参数保留只为兼容旧调用，圆环模式不画底衬——
+    底衬会把 16px 的小图标糊成一团深色方块。
+    """
+    ss = 4
+    cx = cy = size / 2.0              # 采样坐标在原始尺寸空间
+    R = size / 2.0 - 1.8              # 圆环中心半径（尽量占满图标）
+    half = 1.35                       # 环厚一半
+    frac = (level / 100.0) if level is not None else None
+
+    px = bytearray(size * size * 4)
+
+    def put(x: int, y: int, rgba):
+        if 0 <= x < size and 0 <= y < size:
+            i = (y * size + x) * 4
+            px[i:i + 4] = bytes(rgba)
+
+    for y in range(size):
+        for x in range(size):
+            a_track = a_arc = 0
+            for sy in range(ss):
+                for sx in range(ss):
+                    sxp = x + (sx + 0.5) / ss
+                    syp = y + (sy + 0.5) / ss
+                    d = math.hypot(sxp - cx, syp - cy)
+                    if abs(d - R) <= half:
+                        a_track += 1
+                        if frac:
+                            # 0° = 正上方，顺时针
+                            ang = math.degrees(math.atan2(syp - cy, sxp - cx))
+                            ang = (ang + 90.0) % 360.0
+                            if ang / 360.0 <= frac + 1e-9:
+                                a_arc += 1
+            if a_arc:
+                alpha = 255 * a_arc // (ss * ss)
+                put(x, y, (*color, max(alpha, 210)))
+            elif a_track:
+                alpha = 240 * a_track // (ss * ss)
+                put(x, y, (*TRACK_COLOR, alpha))
+
+    # 离线：中心画一条短横，表示"无数据"
+    if level is None:
+        w = max(3, size * 3 // 10)
+        h = max(1, size // 16)
+        x0, y0 = (size - w) // 2, (size - h) // 2
+        for dy in range(h):
+            for dx in range(w):
+                put(x0 + dx, y0 + dy, (*DASH_COLOR, 255))
+
+    return bytes(px)
+
+
 def build_ico(pngs: list[tuple[int, bytes]]) -> bytes:
     """把多张 RGBA 位图打包成 ICO 文件内容。"""
     entries = []
@@ -177,6 +241,28 @@ def make_hicon(text: str, color: tuple[int, int, int], plate: bool = False) -> i
     ico = build_ico(images)
     path = os.path.join(_ensure_tmp(), f"ico_{text}_{color[0]:02x}{color[1]:02x}"
                                        f"{color[2]:02x}_{int(plate)}.ico")
+    try:
+        with open(path, "wb") as f:
+            f.write(ico)
+    except OSError:
+        return 0
+    h = user32.LoadImageW(None, path, IMAGE_ICON, 0, 0, LR_LOADFROMFILE)
+    hicon = int(h) if h else 0
+    _icon_cache[key] = hicon
+    return hicon
+
+
+def make_ring_hicon(level: Optional[int], color: tuple[int, int, int],
+                    plate: bool = False) -> int:
+    """按电量画圆环图标（带缓存）；失败返回 0。"""
+    key = ("ring", level, color, plate)
+    if key in _icon_cache:
+        return _icon_cache[key]
+    images = [(s, render_ring_rgba(level, s, color, plate)) for s in SIZES]
+    ico = build_ico(images)
+    lv = "off" if level is None else str(level)
+    path = os.path.join(_ensure_tmp(), f"ring_{lv}_{color[0]:02x}{color[1]:02x}"
+                                        f"{color[2]:02x}_{int(plate)}.ico")
     try:
         with open(path, "wb") as f:
             f.write(ico)

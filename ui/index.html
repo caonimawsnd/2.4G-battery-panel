@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>我的设备电量</title>
+<style>
+  :root {
+    --bg: #f6f8f9;
+    --card: #ffffff;
+    --card-glass: rgba(255, 255, 255, .58);
+    --imgbox: #f1f3f5;
+    --border: #eceff2;
+    --border-glass: rgba(255, 255, 255, .35);
+    --subtle: #f5f7f8;
+    --text: #1c2126;
+    --text-2: #59626d;
+    --text-3: #8a939e;
+    --accent: #1ea55c;
+    --accent-dark: #17904e;
+    --accent-soft: #e6f5ec;
+    --mid: #d99b26;
+    --low: #e05252;
+    --seg-border: #e3e7ea;
+    --veil: rgba(246, 248, 249, .82);
+    --veil-glass: rgba(246, 248, 249, .55);
+    --shadow: 0 1px 2px rgba(28, 33, 38, .04);
+  }
+  body.dark {
+    --bg: #13171d;
+    --card: #1c2128;
+    --card-glass: rgba(28, 33, 38, .55);
+    --imgbox: #242a33;
+    --border: #2a313b;
+    --border-glass: rgba(255, 255, 255, .09);
+    --subtle: #232932;
+    --text: #eef2f6;
+    --text-2: #b4bec9;
+    --text-3: #828d99;
+    --accent: #2fbf70;
+    --accent-dark: #28a862;
+    --accent-soft: #1d3a2a;
+    --seg-border: #333b46;
+    --veil: rgba(19, 23, 29, .80);
+    --veil-glass: rgba(19, 23, 29, .52);
+    --shadow: 0 1px 2px rgba(0,0,0,.3);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    user-select: none;
+    transition: background .25s ease, color .25s ease;
+  }
+  #bgLayer, #bgVeil { position: fixed; inset: 0; z-index: 0; display: none; }
+  #bgLayer { background-size: cover; background-position: center; }
+  #bgVeil { background: var(--veil); transition: background .25s ease; }
+  body.glass-on #bgVeil { background: var(--veil-glass); }
+  header, main, footer { position: relative; z-index: 1; }
+
+  /* ---------- 毛玻璃卡片 ---------- */
+  /* 全局毛玻璃：只作用于「没有单独设置过」的卡片，
+     右键菜单里单独开关过的卡片（.glass / .solid）由下面的规则接管 */
+  body.glass-on .card:not(.glass):not(.solid),
+  body.glass-on .panel:not(.glass):not(.solid),
+  body.glass-on .set-card {
+    background: var(--card-glass);
+    backdrop-filter: blur(22px) saturate(1.3);
+    -webkit-backdrop-filter: blur(22px) saturate(1.3);
+    border-color: var(--border-glass);
+  }
+  body.glass-on .imgbox, body.glass-on .seg button {
+    backdrop-filter: blur(10px);
+  }
+
+  /* ---------- 单张卡片的毛玻璃（右键设备菜单开启） ---------- */
+  .card.glass, .panel.glass {
+    position: relative;
+    background:
+      linear-gradient(148deg, rgba(255,255,255,.55) 0%, rgba(255,255,255,.18) 32%,
+                      rgba(255,255,255,.02) 60%),
+      rgba(255,255,255,.30);
+    backdrop-filter: blur(26px) saturate(1.7);
+    -webkit-backdrop-filter: blur(26px) saturate(1.7);
+    border-color: rgba(255,255,255,.66);
+    box-shadow:
+      0 14px 34px rgba(24,30,38,.13),
+      inset 0 1px 0 rgba(255,255,255,.72),
+      inset 0 -24px 44px -18px rgba(255,255,255,.30);
+  }
+  /* 图框几乎透明，产品图直接浮在玻璃上 */
+  .card.glass .imgbox, .panel.glass .imgbox {
+    background: rgba(255,255,255,.16);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
+  }
+  body.dark .card.glass, body.dark .panel.glass {
+    background:
+      linear-gradient(148deg, rgba(255,255,255,.15) 0%, rgba(255,255,255,.05) 34%,
+                      rgba(255,255,255,0) 62%),
+      rgba(28,33,38,.44);
+    border-color: rgba(255,255,255,.17);
+    box-shadow:
+      0 16px 38px rgba(0,0,0,.44),
+      inset 0 1px 0 rgba(255,255,255,.14);
+  }
+  body.dark .card.glass .imgbox, body.dark .panel.glass .imgbox {
+    background: rgba(255,255,255,.07);
+    box-shadow: none;
+  }
+
+  /* 右键菜单里显式关掉毛玻璃的卡片：恢复成实心卡片 */
+  .card.solid, .panel.solid {
+    background: var(--card);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border-color: var(--border);
+    box-shadow: var(--shadow);
+  }
+  .card.solid .imgbox, .panel.solid .imgbox {
+    background: var(--imgbox);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  /* ---------- 设备图框：自定义背景图 ---------- */
+  /* 图框是 2.2:1 的宽扁比例，而用户选的图往往是方的或竖的。
+     cover 会按宽度放大、上下裁掉一大半，看着就"显示不全"。
+     这里改成两层：底层同图 cover + 高斯模糊做延展，上层 contain 完整显示。 */
+  .imgbox { position: relative; }
+  .imgbox img { position: relative; z-index: 1; }
+  .imgbox.has-bg { overflow: hidden; }
+  .imgbox .bg-blur,
+  .imgbox .bg-full {
+    position: absolute; inset: 0;
+    border-radius: inherit; pointer-events: none;
+    background-position: center; background-repeat: no-repeat;
+  }
+  .imgbox .bg-blur {
+    background-size: cover;
+    filter: blur(26px) saturate(1.35) brightness(.72);
+    transform: scale(1.25);
+  }
+  .imgbox .bg-full { background-size: contain; }
+  /* 背景图底部压一点暗，产品图不会飘 */
+  .imgbox.has-bg::after {
+    content: "";
+    position: absolute; inset: 0; z-index: 2;
+    border-radius: inherit; pointer-events: none;
+    background: linear-gradient(180deg, rgba(0,0,0,0) 52%, rgba(0,0,0,.26) 100%);
+  }
+
+  /* ---------- 顶栏 ---------- */
+  header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    padding: 26px 34px 20px;
+    animation: fadeUp .4s ease both;
+  }
+  .title-wrap { display: flex; align-items: baseline; gap: 10px; }
+  .title-wrap h1 { font-size: 24px; font-weight: 700; color: var(--accent); letter-spacing: .5px; }
+  .ver { font-size: 12px; color: var(--text-3); }
+  .subtitle { color: var(--text-2); font-size: 13px; margin-top: 5px; }
+  .head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
+  .status-line { color: var(--text-2); font-size: 12.5px; }
+  .status-line b { color: var(--accent); font-weight: 600; }
+
+  .icon-btn {
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 1px solid var(--seg-border); background: var(--card);
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    color: var(--text-2); transition: all .18s ease;
+  }
+  .icon-btn:hover { color: var(--accent); border-color: var(--accent); transform: rotate(20deg); }
+  .icon-btn svg { width: 17px; height: 17px; }
+  body.dark .icon-moon { display: none; }
+  body:not(.dark) .icon-sun { display: none; }
+
+  /* ---------- 主体 ---------- */
+  main { flex: 1; overflow-y: auto; padding: 2px 34px 10px; }
+  main::-webkit-scrollbar { width: 8px; }
+  main::-webkit-scrollbar-thumb { background: #c9d2da; border-radius: 4px; }
+  body.dark main::-webkit-scrollbar-thumb { background: #333b46; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; box-shadow: var(--shadow);
+    padding: 14px 16px 18px;
+    transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+    animation: fadeUp .45s ease both;
+  }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+  .grid .card { cursor: pointer; }
+  .grid .card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(28,33,38,.1); border-color: var(--accent); }
+  .card:nth-child(2) { animation-delay: .06s; }
+
+  .imgbox {
+    aspect-ratio: 2.2 / 1; border-radius: 10px; background: var(--imgbox);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-2); margin-bottom: 14px; overflow: hidden;
+  }
+  .imgbox svg { width: 74px; height: 74px; opacity: .8; }
+  .imgbox img { max-width: 100%; max-height: 100%; object-fit: contain;
+                border-radius: 10px; filter: drop-shadow(0 6px 14px rgba(28,33,38,.22)); }
+  .imgbox.big { aspect-ratio: 2.2 / 1; }
+  .imgbox.big svg { width: 96px; height: 96px; }
+
+  .dev-name { font-size: 16.5px; font-weight: 700; }
+  .dev-sub { color: var(--text-2); font-size: 12.5px; margin-top: 4px; min-height: 18px;
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .dev-foot { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+  .conn { display: flex; align-items: center; gap: 6px; font-size: 12.5px; width: 92px; flex: none; }
+  .conn .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok, var(--accent)); }
+  .conn.off { color: var(--text-3); }
+  .conn.off .dot { background: var(--text-3); }
+  .conn.on { color: var(--accent); }
+  .mini-track {
+    flex: 1; max-width: 96px; height: 10px; border-radius: 5px;
+    background: var(--subtle); border: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .mini-fill { height: 100%; width: 0%; border-radius: 5px; background: var(--accent);
+               transition: width .8s cubic-bezier(.3,.7,.3,1), background .3s ease; }
+  .pct-big {
+    margin-left: auto; font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif;
+    font-size: 23px; font-weight: 700; letter-spacing: -.3px;
+  }
+  .pct-big .unk { color: var(--text-3); font-size: 19px; }
+
+  .extra { margin-top: 10px; color: var(--text-2); font-size: 12px; line-height: 1.7; display: none; }
+  .extra.show { display: block; }
+  .extra .err { color: var(--low); }
+
+  /* ---------- 分段按钮 ---------- */
+  .section-title { font-size: 16.5px; font-weight: 700; margin: 26px 0 6px; }
+  .set-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: var(--shadow); padding: 20px 24px 16px; animation: fadeUp .5s .1s ease both;
+  }
+  .set-row { display: flex; align-items: center; gap: 14px; padding: 9px 0; flex-wrap: wrap; }
+  .set-row .lab { color: var(--text-2); font-size: 13px; width: 118px; flex: none; }
+  .seg { display: flex; gap: 10px; flex-wrap: wrap; }
+  .seg button {
+    font: inherit; font-size: 13px; color: var(--text);
+    padding: 8px 20px; border-radius: 7px; cursor: pointer;
+    background: var(--card); border: 1px solid var(--seg-border);
+    transition: all .15s ease; min-width: 66px;
+  }
+  .seg button:hover { border-color: var(--accent); color: var(--accent); }
+  .seg button.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .seg.mini button { padding: 6px 14px; min-width: 52px; font-size: 12.5px; }
+
+  .tray-lab { color: var(--text-2); font-size: 13px; flex: 1; min-width: 200px; line-height: 1.5; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex: none; transition: background .3s ease; }
+  .dot.on { background: var(--accent); }
+
+  /* ---------- 底栏 ---------- */
+  footer { display: flex; align-items: center; gap: 12px; padding: 14px 34px 20px; }
+  .btn {
+    font: inherit; font-size: 13.5px; font-weight: 600;
+    padding: 10px 24px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--seg-border); background: var(--card); color: var(--text);
+    transition: all .15s ease;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn:active { transform: scale(.97); }
+  .btn:disabled { opacity: .45; cursor: default; transform: none; }
+  .foot-status { margin-left: auto; display: flex; align-items: center; gap: 8px;
+                 font-size: 12.5px; color: var(--text-2); }
+
+  /* ---------- 详情页 ---------- */
+  #viewDetail { display: none; animation: fadeUp .3s ease both; }
+  #viewHome.hidden, #viewDetail.hidden { display: none; }
+  #btnBack {
+    font: inherit; font-size: 13px; font-weight: 600; color: var(--text);
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    cursor: pointer; padding: 6px 14px; margin-bottom: 14px; display: inline-flex;
+    align-items: center; gap: 6px; box-shadow: var(--shadow);
+    transition: color .15s ease, border-color .15s ease;
+  }
+  #btnBack:hover { color: var(--accent); border-color: var(--accent); }
+
+  .detail-grid { display: grid; grid-template-columns: 360px 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 860px) { .detail-grid { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: var(--shadow); padding: 20px 22px;
+  }
+  .panel h3 { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
+
+  .spec-row {
+    display: flex; justify-content: space-between; gap: 14px;
+    padding: 9px 0; border-bottom: 1px dashed var(--border); font-size: 13px;
+  }
+  .spec-row:last-of-type { border-bottom: none; }
+  .spec-row .k { color: var(--text-2); }
+  .spec-row .v { text-align: right; word-break: break-all; }
+
+  .ring-wrap { display: flex; flex-direction: column; align-items: center; margin-top: 18px; }
+  .ring-cap { margin-top: 8px; font-size: 13px; color: var(--text-2); }
+
+  /* 回报率实测 / 系统设置 */
+  .polling-result { display: flex; align-items: baseline; gap: 5px; }
+  .polling-num { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--accent); }
+  .polling-unit { font-size: 13px; color: var(--text-2); }
+  .sys-row { display: flex; align-items: center; gap: 14px; margin-top: 14px; }
+  .sys-k { font-size: 13px; color: var(--text-2); width: 62px; flex: none; }
+  .sys-v { font-size: 13px; font-weight: 700; min-width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+  #ptrSpeed { flex: 1; accent-color: var(--accent); height: 4px; }
+  .ring-cap.low { color: var(--low); }
+  .ring-cap.mid { color: var(--mid); }
+  .ring-cap.ok  { color: var(--accent); }
+
+  .info-line { font-size: 12.5px; line-height: 1.8; color: var(--text-2); word-break: break-all; }
+  .info-line .err { color: var(--low); }
+  .info-line .dim { color: var(--text-3); }
+
+  /* ---------- 右键菜单 ---------- */
+  #ctxMenu, #devMenu {
+    position: fixed; z-index: 99; display: none; min-width: 230px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: 0 10px 34px rgba(0,0,0,.18);
+    padding: 6px; animation: fadeUp .12s ease both;
+  }
+  .ctx-item {
+    display: flex; align-items: center; gap: 9px;
+    padding: 9px 12px; border-radius: 7px; font-size: 13px;
+    cursor: pointer; color: var(--text);
+  }
+  .ctx-item:hover { background: var(--subtle); color: var(--accent); }
+  .ctx-item.disabled { opacity: .4; pointer-events: none; }
+  .ctx-check { justify-content: space-between; }
+  .ctx-check input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
+  .ctx-sep { height: 1px; background: var(--border); margin: 5px 8px; }
+  .ctx-colors { display: flex; gap: 8px; padding: 9px 12px; align-items: center; }
+  .ctx-colors .lab { font-size: 12px; color: var(--text-3); margin-right: 2px; }
+  .swatch { width: 24px; height: 24px; border-radius: 7px; cursor: pointer;
+            border: 2px solid transparent; transition: transform .12s ease; }
+  .swatch:hover { transform: scale(1.15); }
+  .swatch.none-sw { background: var(--subtle); position: relative; }
+  .swatch.none-sw::after { content: "✕"; position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; color: var(--text-3); }
+
+  /* ---------- Toast ---------- */
+  #toast {
+    position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%) translateY(16px);
+    background: #2b3442; color: #f2f5fa; font-size: 13px;
+    padding: 10px 22px; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.3);
+    opacity: 0; pointer-events: none; transition: all .25s ease; max-width: 82%; z-index: 9;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+</style>
+</head>
+<body>
+<div id="bgLayer"></div>
+<div id="bgVeil"></div>
+
+<header>
+  <div>
+    <div class="title-wrap">
+      <h1>我的设备电量</h1>
+      <span class="ver">v1.0.0</span>
+    </div>
+    <div class="subtitle">2.4G 无线设备 · 实时电量</div>
+  </div>
+  <div class="head-right">
+    <button class="icon-btn" id="btnDark" title="切换深色 / 浅色">
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/></svg>
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><line x1="12" y1="1.5" x2="12" y2="3.5"/><line x1="12" y1="20.5" x2="12" y2="22.5"/><line x1="1.5" y1="12" x2="3.5" y2="12"/><line x1="20.5" y1="12" x2="22.5" y2="12"/><line x1="4.6" y1="4.6" x2="6" y2="6"/><line x1="18" y1="18" x2="19.4" y2="19.4"/><line x1="4.6" y1="19.4" x2="6" y2="18"/><line x1="18" y1="6" x2="19.4" y2="4.6"/></svg>
+    </button>
+    <div class="status-line" id="statusLine"><b>0/2</b> 台设备在线 · 更新于 --:--:--</div>
+  </div>
+</header>
+
+<main>
+  <!-- ========== 首页视图 ========== -->
+  <div id="viewHome">
+    <div class="grid" id="homeGrid">
+      <section class="card" data-idx="0">
+        <div class="imgbox" id="glyph0"></div>
+        <div class="dev-name">雷柏 VT3S</div>
+        <div class="dev-sub" id="sub0">等待读取…</div>
+        <div class="dev-foot">
+          <span class="conn off" id="conn0"><span class="dot"></span><span id="connTxt0">未连接</span></span>
+          <div class="mini-track"><div class="mini-fill" id="meter0"></div></div>
+          <div class="pct-big" id="num0">--</div>
+        </div>
+        <div class="extra" id="det0"></div>
+      </section>
+      <section class="card" data-idx="1">
+        <div class="imgbox" id="glyph1"></div>
+        <div class="dev-name">狼蛛 F87 键盘</div>
+        <div class="dev-sub" id="sub1">等待读取…</div>
+        <div class="dev-foot">
+          <span class="conn off" id="conn1"><span class="dot"></span><span id="connTxt1">未连接</span></span>
+          <div class="mini-track"><div class="mini-fill" id="meter1"></div></div>
+          <div class="pct-big" id="num1">--</div>
+        </div>
+        <div class="extra" id="det1"></div>
+      </section>
+    </div>
+
+    <div class="section-title">设置</div>
+    <div class="set-card">
+      <div class="set-row">
+        <span class="lab">刷新间隔</span>
+        <div class="seg" id="segInterval"></div>
+      </div>
+      <div class="set-row">
+        <span class="lab">开机自启</span>
+        <div class="seg" id="segBoot">
+          <button data-v="1">开</button>
+          <button data-v="0">关</button>
+        </div>
+      </div>
+      <div class="set-row">
+        <span class="dot" id="trayDot"></span>
+        <span class="tray-lab" id="trayLab">正在检查托盘状态…</span>
+        <div class="seg mini">
+          <button id="btnLink">重建桌面链接</button>
+          <button id="btnTray">退出托盘程序</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 详情视图 ========== -->
+  <div id="viewDetail">
+    <button id="btnBack">‹ 返回设备列表</button>
+    <div class="detail-grid">
+      <div class="panel">
+        <div class="imgbox big" id="dGlyph"></div>
+        <div class="dev-name" id="dName"></div>
+        <div class="conn" id="dConn" style="margin-top:8px"><span class="dot"></span><span id="dConnTxt"></span></div>
+        <div style="margin-top:16px">
+          <div class="spec-row"><span class="k">设备标识</span><span class="v" id="dVid">-</span></div>
+          <div class="spec-row"><span class="k">连接方式</span><span class="v">2.4G 无线</span></div>
+          <div class="spec-row"><span class="k">当前 DPI</span><span class="v" id="dDpi">-</span></div>
+          <div class="spec-row"><span class="k">读取协议</span><span class="v" id="dProto">-</span></div>
+          <div class="spec-row"><span class="k">最近更新</span><span class="v" id="dTs">-</span></div>
+        </div>
+        <div class="ring-wrap">
+          <svg width="150" height="150" viewBox="0 0 150 150">
+            <circle cx="75" cy="75" r="62" fill="none" stroke="var(--subtle)" stroke-width="10"/>
+            <circle id="ringFill" cx="75" cy="75" r="62" fill="none" stroke="var(--accent)" stroke-width="10"
+                    stroke-linecap="round" transform="rotate(-90 75 75)"
+                    stroke-dasharray="389.6" stroke-dashoffset="389.6"
+                    style="transition: stroke-dashoffset .9s cubic-bezier(.3,.7,.3,1), stroke .3s ease"/>
+            <text x="75" y="73" text-anchor="middle" id="ringNum"
+                  font-size="34" font-weight="700" fill="var(--text)"
+                  font-family="Segoe UI Variable Display, Segoe UI, sans-serif">--</text>
+            <text x="75" y="97" text-anchor="middle" font-size="12" fill="var(--text-2)">电量 %</text>
+          </svg>
+          <div class="ring-cap" id="ringCap"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>读取信息</h3>
+        <div class="info-line" id="dInfo">暂无数据</div>
+        <div style="margin-top:18px;display:flex;gap:10px">
+          <button class="btn" id="btnRedetect" style="padding:8px 18px;font-size:13px">重新读取</button>
+        </div>
+
+        <div id="mousePerf" style="display:none">
+          <h3 style="margin-top:22px">回报率实测</h3>
+          <div class="info-line dim">点击开始后晃动鼠标，通过测量移动报文间隔计算真实回报率。</div>
+          <div style="margin-top:12px;display:flex;align-items:center;gap:14px">
+            <button class="btn" id="btnPolling" style="padding:8px 18px;font-size:13px">开始测量</button>
+            <div class="polling-result"><span class="polling-num" id="pollingNum">--</span>
+              <span class="polling-unit">Hz</span></div>
+          </div>
+
+          <h3 style="margin-top:22px">系统鼠标设置</h3>
+          <div class="info-line dim">作用于 Windows 全局（与控制面板一致），立即生效。</div>
+          <div class="sys-row">
+            <span class="sys-k">指针速度</span>
+            <input type="range" id="ptrSpeed" min="1" max="20" step="1">
+            <span class="sys-v" id="ptrSpeedVal">-</span>
+          </div>
+          <div class="sys-row">
+            <span class="sys-k">滚轮行数</span>
+            <div class="seg" id="segWheel">
+              <button data-v="1">1</button><button data-v="3">3</button>
+              <button data-v="5">5</button><button data-v="10">10</button>
+            </div>
+            <span class="sys-v" id="wheelVal">-</span>
+          </div>
+        </div>
+
+        <h3 style="margin-top:22px">说明</h3>
+        <div class="info-line dim">雷柏鼠标走私有状态广播（BB B0：电量 + 当前 DPI + 连接模式）；<br>
+        狼蛛键盘的电量协议尚未标定，读不到属正常现象。<br>
+        雷柏的电量广播约需等待数秒，请耐心稍候。</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <button class="btn" id="btnRefresh">立即刷新</button>
+  <button class="btn" id="btnHide">隐藏到托盘</button>
+  <button class="btn" id="btnFolder">打开配置文件夹</button>
+  <span class="foot-status">
+    <span class="dot" id="footDot"></span>
+    <span id="footText">正在读取…</span>
+  </span>
+</footer>
+
+<!-- 右键菜单：自定义设备背景（右键设备卡片弹出） -->
+<div id="devMenu">
+  <div class="ctx-item" id="devPick">🖼&nbsp; 自定义设备背景图…</div>
+  <div class="ctx-item" id="devReset">↺&nbsp; 恢复默认背景图</div>
+  <div class="ctx-sep"></div>
+  <label class="ctx-item ctx-check" id="devGlassRow">
+    <span>毛玻璃效果</span><input type="checkbox" id="devGlass">
+  </label>
+</div>
+
+<!-- 右键菜单：自定义背景 -->
+<div id="ctxMenu">
+  <div class="ctx-item" id="ctxPick">🖼&nbsp; 选择背景图片…</div>
+  <div class="ctx-colors">
+    <span class="lab">纯色</span>
+    <button class="swatch" data-c="#1ea55c" style="background:#1ea55c" title="清爽绿"></button>
+    <button class="swatch" data-c="#1f6feb" style="background:#1f6feb" title="科技蓝"></button>
+    <button class="swatch" data-c="#5b6b7f" style="background:#5b6b7f" title="高级灰"></button>
+    <button class="swatch" data-c="#2b3442" style="background:#2b3442" title="墨黑"></button>
+    <button class="swatch none-sw" data-c="" title="无背景"></button>
+  </div>
+  <div class="ctx-sep"></div>
+  <label class="ctx-item ctx-check disabled" id="ctxGlassRow">
+    <span>毛玻璃效果</span><input type="checkbox" id="ctxGlass">
+  </label>
+  <label class="ctx-item ctx-check disabled" id="ctxThemeRow">
+    <span>主题色跟随背景图</span><input type="checkbox" id="ctxTheme" checked>
+  </label>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" id="ctxReset">↺&nbsp; 恢复默认背景</div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const api = () => window.pywebview.api;
+const esc = s => String(s).replace(/[&<>"]/g, c =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+const GLYPHS = {
+  mouse: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"><rect x="6.8" y="2.2" width="10.4" height="19.6" rx="5.2"/><line x1="12" y1="5.5" x2="12" y2="9.8"/><line x1="9.2" y1="5.5" x2="14.8" y2="5.5" opacity=".5"/></svg>',
+  keyboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"><rect x="2" y="6.2" width="20" height="11.6" rx="2"/><rect x="4.4" y="8.6" width="2" height="1.7" rx=".3" fill="currentColor" stroke="none"/><rect x="7.6" y="8.6" width="2" height="1.7" rx=".3" fill="currentColor" stroke="none"/><rect x="10.8" y="8.6" width="2" height="1.7" rx=".3" fill="currentColor" stroke="none"/><rect x="14" y="8.6" width="2" height="1.7" rx=".3" fill="currentColor" stroke="none"/><rect x="17.2" y="8.6" width="2" height="1.7" rx=".3" fill="currentColor" stroke="none"/><rect x="4.4" y="11.6" width="2" height="1.7" rx=".3" fill="currentColor" stroke="none"/><rect x="7.6" y="11.6" width="2" height="1.7" rx=".3" fill="currentColor" stroke="none"/><rect x="10.8" y="11.6" width="2" height="1.7" rx=".3" fill="currentColor" stroke="none"/><rect x="14" y="11.6" width="2" height="1.7" rx=".3" fill="currentColor" stroke="none"/><rect x="17.2" y="11.6" width="2" height="1.7" rx=".3" fill="currentColor" stroke="none"/><rect x="7" y="14.6" width="10" height="1.7" rx=".4" fill="currentColor" stroke="none"/></svg>'
+};
+const DEVICE_NAMES = ["雷柏 VT3S", "狼蛛 F87 键盘"];
+const RING_C = 389.6;
+
+let S = {
+  auto: true, interval: 60, busy: false, timer: null,
+  trayRunning: false, trayBusy: false,
+  notice: "", noticeUntil: 0,
+  bg: { mode: "none", value: "", accent: "", glass: false, theme_auto: true },
+  readings: [null, null], ts: "",
+  detailIdx: 0,
+};
+
+/* ================= 主题色 ================= */
+function shade(hex, amt) {          // amt<0 变深, >0 变浅
+  const n = parseInt(hex.slice(1), 16);
+  let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const t = amt < 0 ? 0 : 255, p = Math.abs(amt);
+  r = Math.round((t - r) * p + r); g = Math.round((t - g) * p + g); b = Math.round((t - b) * p + b);
+  return "#" + [r, g, b].map(x => x.toString(16).padStart(2, "0")).join("");
+}
+function applyAccent(hex) {
+  const root = document.documentElement;
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) {     // 恢复默认
+    ["--accent", "--accent-dark", "--accent-soft"].forEach(v => root.style.removeProperty(v));
+    return;
+  }
+  const dark = document.body.classList.contains("dark");
+  root.style.setProperty("--accent", hex);
+  root.style.setProperty("--accent-dark", shade(hex, -0.14));
+  root.style.setProperty("--accent-soft", shade(hex, dark ? 0.82 : 0.88));
+}
+
+/* ================= 背景管理 ================= */
+function applyBg(bg) {
+  S.bg = Object.assign({ mode: "none", value: "", accent: "", glass: false, theme_auto: true }, bg || {});
+  const b = S.bg, layer = $("bgLayer"), veil = $("bgVeil");
+  const imageOn = b.mode === "image" && b.value;
+  layer.style.display = (imageOn || (b.mode === "color" && b.value)) ? "block" : "none";
+  if (imageOn) {
+    layer.style.backgroundImage = 'url("' + b.value + '")';
+    layer.style.backgroundColor = "transparent";
+  } else if (b.mode === "color" && b.value) {
+    layer.style.backgroundImage = "none";
+    layer.style.backgroundColor = b.value;
+  }
+  veil.style.display = imageOn ? "block" : "none";
+  document.body.classList.toggle("glass-on", imageOn && !!b.glass);
+  applyAccent(imageOn && b.theme_auto && b.accent ? b.accent : "");
+  applyDeviceGlass();     // 全局毛玻璃变了，没单独设置过的卡片要跟着变
+  updateCtxState();
+}
+
+function persistBg() { api().set_ui_bg(S.bg); }
+
+async function pickImage() {
+  const path = await api().choose_bg_image();
+  if (!path) return;
+  let accent = "";
+  if (S.bg.theme_auto) {
+    try { const r = await api().extract_theme_color(path); accent = r.accent || ""; } catch (e) {}
+  }
+  const url = "file:///" + encodeURI(path.replace(/\\/g, "/")).replace(/#/g, "%23");
+  S.bg.mode = "image"; S.bg.value = url; S.bg.path = path; S.bg.accent = accent;
+  applyBg(S.bg); persistBg();
+  toast(accent ? "背景已设置，主题色已跟随图片" : "背景已设置");
+}
+
+function updateCtxState() {
+  const imageOn = S.bg.mode === "image" && S.bg.value;
+  $("ctxGlassRow").classList.toggle("disabled", !imageOn);
+  $("ctxThemeRow").classList.toggle("disabled", !imageOn);
+  $("ctxGlass").checked = !!S.bg.glass;
+  $("ctxTheme").checked = S.bg.theme_auto !== false;
+}
+
+function showCtx(x, y) {
+  const m = $("ctxMenu");
+  m.style.display = "block";
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.min(x, window.innerWidth - r.width - 8) + "px";
+  m.style.top = Math.min(y, window.innerHeight - r.height - 8) + "px";
+}
+function hideCtx() { $("ctxMenu").style.display = "none"; }
+
+document.addEventListener("contextmenu", e => {
+  if (e.target.closest("#ctxMenu")) return;
+  if (e.target.closest("button, input, select, .card, .panel, .set-card, .mini-track, svg")) return;
+  e.preventDefault();
+  showCtx(e.clientX, e.clientY);
+});
+document.addEventListener("click", e => {
+  if (!e.target.closest("#ctxMenu")) hideCtx();
+  if (!e.target.closest("#devMenu")) hideDevMenu();
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") {
+    // 右键菜单开着就先关菜单；否则若在详情页，则返回主界面
+    if ($("ctxMenu").style.display === "block") hideCtx();
+    else if ($("devMenu").style.display === "block") hideDevMenu();
+    else if ($("viewDetail").style.display === "block") goHome();
+  }
+});
+
+$("ctxPick").onclick = pickImage;
+$("ctxReset").onclick = () => { S.bg = { mode: "none", value: "", accent: "", glass: false, theme_auto: true }; applyBg(S.bg); persistBg(); toast("已恢复默认背景"); };
+document.querySelectorAll("#ctxMenu .swatch").forEach(s => s.onclick = () => {
+  if (!s.dataset.c) { $("ctxReset").onclick(); return; }
+  S.bg.mode = "color"; S.bg.value = s.dataset.c; S.bg.accent = "";
+  applyBg(S.bg); persistBg();
+});
+$("ctxGlass").onchange = async () => {
+  S.bg.glass = $("ctxGlass").checked;
+  applyBg(S.bg); persistBg();
+};
+$("ctxTheme").onchange = async () => {
+  S.bg.theme_auto = $("ctxTheme").checked;
+  if (S.bg.mode === "image" && S.bg.value) {
+    if (S.bg.theme_auto && S.bg.path) {
+      try { const r = await api().extract_theme_color(S.bg.path); S.bg.accent = (r && r.accent) || ""; }
+      catch (e) { S.bg.accent = ""; }
+    } else {
+      S.bg.accent = "";
+    }
+  }
+  applyBg(S.bg); persistBg();
+};
+
+/* ================= 电量卡片 ================= */
+function tone(level) {
+  if (level === null || level === undefined) return null;
+  return level >= 60 ? { c: "var(--accent)" }
+       : level >= 30 ? { c: "var(--mid)" }
+       :               { c: "var(--low)" };
+}
+
+function renderCard(i, r) {
+  const t = tone(r.level);
+  $("sub" + i).textContent = r.subtitle || "";
+  const conn = $("conn" + i);
+  const online = r.level !== null && r.level !== undefined;
+  conn.className = "conn " + (online ? "on" : "off");
+  $("connTxt" + i).textContent = online ? "已连接" : "未连接";
+  const num = $("num" + i), meter = $("meter" + i);
+  if (online) {
+    num.textContent = r.level + "%";
+    num.style.color = "";
+    meter.style.background = t.c;
+    meter.style.width = r.level + "%";
+  } else {
+    num.innerHTML = '<span class="unk">--</span>';
+    meter.style.width = "0%";
+  }
+  const parts = [];
+  if (r.error) parts.push('<span class="err">' + esc(r.error) + "</span>");
+  if (r.detail) parts.push(esc(r.detail));
+  if (r.extra) parts.push(esc(r.extra));
+  const det = $("det" + i);
+  det.innerHTML = parts.join("<br>");
+  det.classList.toggle("show", parts.length > 0);
+}
+
+function applyReadings(r) {
+  S.readings = r.readings;
+  S.ts = r.ts;
+  r.readings.forEach((rd, i) => renderCard(i, rd));
+  $("footDot").style.background = { 2: "var(--accent)", 1: "var(--mid)" }[r.ok_count] || "var(--low)";
+  $("statusLine").innerHTML = "<b>" + r.ok_count + "/2</b> 台设备在线 · 更新于 " + r.ts;
+  $("footText").textContent = "更新于 " + r.ts + " · 成功读取 " + r.ok_count + "/2 个设备"
+    + (S.auto ? "" : "（自动刷新已关闭）");
+  if ($("viewDetail").style.display === "block") fillDetail(S.detailIdx);
+}
+
+async function refresh() {
+  if (S.busy) return;
+  S.busy = true;
+  $("btnRefresh").disabled = true;
+  $("btnRedetect").disabled = true;
+  $("footText").textContent = "正在读取…（雷柏的电量广播要等几秒钟）";
+  try {
+    const r = await api().refresh();
+    if (r && r.readings) applyReadings(r);
+  } catch (e) { $("footText").textContent = "读取失败：" + e; }
+  S.busy = false;
+  $("btnRefresh").disabled = false;
+  $("btnRedetect").disabled = false;
+}
+
+function scheduleAuto() {
+  clearTimeout(S.timer);
+  if (S.auto) S.timer = setTimeout(async () => { await refresh(); scheduleAuto(); }, S.interval * 1000);
+}
+
+/* ================= 详情页 ================= */
+function showDetail(i) {
+  S.detailIdx = i;
+  fillDetail(i);
+  applyDeviceBg();
+  applyDeviceGlass();
+  $("viewHome").style.display = "none";
+  $("viewDetail").style.display = "block";
+  $("viewDetail").classList.remove("hidden");
+  document.querySelector("main").scrollTop = 0;
+  if (i === 0) loadMouseSys();          // 鼠标详情：加载系统设置当前值
+}
+function goHome() {
+  $("viewDetail").style.display = "none";
+  $("viewHome").style.display = "block";
+}
+function fillDetail(i) {
+  const r = S.readings[i];
+  if (!r) return;
+  setGlyph($("dGlyph"), DEV_KEYS[i] || "rapoo");
+  $("dName").textContent = DEVICE_NAMES[i];
+  const online = r.level !== null && r.level !== undefined;
+  $("dConn").className = "conn " + (online ? "on" : "off");
+  $("dConnTxt").textContent = online ? "已连接 · 2.4G 通道" : "未连接";
+  $("dVid").textContent = r.subtitle || "-";
+  $("dDpi").textContent = (i === 0 && r.dpi) ? r.dpi + " DPI（设备上报）" : "-";
+  $("dProto").textContent = r.detail || "-";
+  $("dTs").textContent = S.ts || "-";
+  $("mousePerf").style.display = (i === 0) ? "block" : "none";
+  const ring = $("ringFill"), num = $("ringNum"), cap = $("ringCap");
+  if (online) {
+    const t = tone(r.level);
+    ring.style.stroke = t.c;
+    ring.style.strokeDashoffset = RING_C * (1 - r.level / 100);
+    num.textContent = r.level;
+    num.setAttribute("fill", "var(--text)");
+    cap.textContent = r.level >= 60 ? "电量充足" : r.level >= 30 ? "电量中等" : "请尽快充电";
+    cap.className = "ring-cap " + (r.level >= 60 ? "ok" : r.level >= 30 ? "mid" : "low");
+  } else {
+    ring.style.strokeDashoffset = RING_C;
+    num.textContent = "--";
+    cap.textContent = "未读取到电量";
+    cap.className = "ring-cap";
+  }
+  const parts = [];
+  if (r.error) parts.push('<span class="err">' + esc(r.error) + "</span>");
+  if (r.status) parts.push(esc(r.status));
+  if (r.extra) parts.push('<span class="dim">' + esc(r.extra) + "</span>");
+  $("dInfo").innerHTML = parts.join("<br>") || "暂无附加信息";
+}
+
+$("btnBack").onclick = goHome;
+$("btnRedetect").onclick = refresh;
+document.querySelectorAll("#homeGrid .card").forEach(c =>
+  c.addEventListener("click", () => showDetail(+c.dataset.idx)));
+
+/* ================= 鼠标性能：回报率实测 + 系统设置 ================= */
+$("btnPolling").onclick = async () => {
+  const btn = $("btnPolling");
+  if (btn.disabled) return;
+  btn.disabled = true; btn.textContent = "测量中…晃动鼠标";
+  $("pollingNum").textContent = "…";
+  try {
+    const r = await api().measure_polling();
+    if (r && r.hz > 0) {
+      $("pollingNum").textContent = r.hz;
+      toast("实测回报率 " + r.hz + " Hz（样本 " + r.samples + "）");
+    } else {
+      $("pollingNum").textContent = "--";
+      toast((r && r.error) || "未测到回报率");
+    }
+  } catch (e) {
+    $("pollingNum").textContent = "--";
+    toast("测量失败：" + e);
+  }
+  btn.disabled = false; btn.textContent = "开始测量";
+};
+
+async function loadMouseSys() {
+  try {
+    const s = await api().get_mouse_sys();
+    if (s.pointer_speed !== null && s.pointer_speed !== undefined) {
+      $("ptrSpeed").value = s.pointer_speed;
+      $("ptrSpeedVal").textContent = s.pointer_speed;
+    }
+    if (s.wheel_lines !== null && s.wheel_lines !== undefined) {
+      $("wheelVal").textContent = s.wheel_lines === -1 ? "整页" : s.wheel_lines + " 行";
+      segSelect($("segWheel"), document.querySelector(
+        `#segWheel button[data-v="${s.wheel_lines}"]`));
+    }
+  } catch (e) { /* 静默：系统设置读取失败不影响其他功能 */ }
+}
+
+let ptrTimer = null;
+$("ptrSpeed").oninput = () => { $("ptrSpeedVal").textContent = $("ptrSpeed").value; };
+$("ptrSpeed").onchange = async () => {
+  clearTimeout(ptrTimer);
+  ptrTimer = setTimeout(async () => {
+    try {
+      const r = await api().set_pointer_speed(+$("ptrSpeed").value);
+      toast(r.message || (r.ok ? "已更新" : "设置失败"));
+    } catch (e) { toast("设置失败：" + e); }
+  }, 350);
+};
+$("segWheel").addEventListener("click", async (ev) => {
+  const btn = ev.target.closest("button[data-v]");
+  if (!btn) return;
+  segSelect($("segWheel"), btn);
+  try {
+    const r = await api().set_wheel_lines(+btn.dataset.v);
+    $("wheelVal").textContent = r.ok ? (btn.dataset.v === "-1" ? "整页" : btn.dataset.v + " 行") : $("wheelVal").textContent;
+    toast(r.message || (r.ok ? "已更新" : "设置失败"));
+  } catch (e) { toast("设置失败：" + e); }
+});
+
+/* ================= 设置：分段按钮 ================= */
+function segSelect(segEl, btn) {
+  segEl.querySelectorAll("button").forEach(b => b.classList.remove("on"));
+  if (btn) btn.classList.add("on");
+}
+
+function initInterval(choices, current) {
+  const seg = $("segInterval");
+  seg.innerHTML = "";
+  choices.forEach(([sec, label]) => {
+    const b = document.createElement("button");
+    b.textContent = label;
+    if (sec === current) b.classList.add("on");
+    b.onclick = async () => {
+      if (S.interval === sec) return;
+      segSelect(seg, b);
+      S.interval = sec;
+      await api().set_interval(sec);
+      toast("刷新间隔已改为 " + label);
+      scheduleAuto();
+    };
+    seg.appendChild(b);
+  });
+}
+
+function initBoot(enabled) {
+  const seg = $("segBoot");
+  segSelect(seg, seg.querySelector('[data-v="' + (enabled ? "1" : "0") + '"]'));
+  seg.querySelectorAll("button").forEach(b => b.onclick = async () => {
+    const want = b.dataset.v === "1";
+    const cur = seg.querySelector(".on");
+    if (cur === b) return;
+    segSelect(seg, b);
+    try {
+      const r = await api().set_autostart(want);
+      toast(r.message || "已更新");
+      if (!r.ok) segSelect(seg, cur);
+    } catch (e) { segSelect(seg, cur); toast("设置失败：" + e); }
+  });
+}
+
+/* ================= 暗色模式 ================= */
+function initDark(on) {
+  document.body.classList.toggle("dark", !!on);
+  $("btnDark").onclick = async () => {
+    const now = !document.body.classList.contains("dark");
+    document.body.classList.toggle("dark", now);
+    if (S.bg.mode === "image" && S.bg.theme_auto && S.bg.accent) applyAccent(S.bg.accent);
+    else applyAccent("");
+    await api().set_ui_dark(now);
+  };
+}
+
+/* ================= 托盘 ================= */
+function updateTray(running) {
+  S.trayRunning = running;
+  $("trayDot").classList.toggle("on", running);
+  if (S.notice && Date.now() < S.noticeUntil) {
+    $("trayLab").textContent = S.notice;
+    $("btnTray").textContent = running ? "退出托盘程序" : "启动托盘程序";
+    return;
+  }
+  S.notice = "";
+  $("trayLab").textContent = running
+    ? "托盘运行中：右键托盘图标即可打开本窗口"
+    : "托盘未运行：不会后台自动刷新";
+  $("btnTray").textContent = running ? "退出托盘程序" : "启动托盘程序";
+}
+
+async function pollTray() {
+  try { const r = await api().tray_status(); updateTray(!!r.running); } catch (e) {}
+  setTimeout(pollTray, 2000);
+}
+
+$("btnTray").onclick = async () => {
+  if (S.trayBusy) return;
+  S.trayBusy = true;
+  const btn = $("btnTray");
+  try {
+    if (S.trayRunning) {
+      btn.textContent = "正在退出…";
+      await api().toggle_tray();
+      for (const d of [600, 1500, 3000]) setTimeout(async () => {
+        const r = await api().tray_status(); updateTray(!!r.running);
+      }, d);
+    } else {
+      btn.textContent = "正在启动…";
+      const r = await api().toggle_tray();
+      updateTray(!!r.running);
+      if (!r.running) notice("启动失败：可双击桌面「电量托盘」再试", 12);
+    }
+  } catch (e) { toast("操作失败：" + e); }
+  S.trayBusy = false;
+};
+
+$("btnLink").onclick = async () => {
+  const btn = $("btnLink");
+  btn.disabled = true; btn.textContent = "正在创建…";
+  try {
+    const r = await api().rebuild_links();
+    notice(r.message || "桌面链接已更新", 12);
+    if (r.errors && r.errors.length) toast(r.errors.join("\n"));
+  } catch (e) { toast("创建失败：" + e); }
+  btn.disabled = false; btn.textContent = "重建桌面链接";
+};
+
+/* ================= 底栏 ================= */
+$("btnRefresh").onclick = refresh;
+$("btnHide").onclick = async () => {
+  try {
+    const r = await api().hide_to_tray();
+    if (!r.ok) toast(r.message || "请先启动托盘程序");
+  } catch (e) { toast("操作失败：" + e); }
+};
+$("btnFolder").onclick = async () => { try { await api().open_config_folder(); } catch (e) {} };
+
+/* ================= 通用 ================= */
+function notice(text, seconds = 8) {
+  S.notice = text; S.noticeUntil = Date.now() + seconds * 1000;
+  updateTray(S.trayRunning);
+  setTimeout(() => { S.notice = ""; updateTray(S.trayRunning); }, seconds * 1000);
+}
+
+let toastTimer = null;
+/* ================= 设备卡片（右键自定义背景 / 毛玻璃） ================= */
+const DEV_KEYS = ["rapoo", "aula"];
+S.devBg = S.devBg || {};           // 自定义背景图：{"rapoo": "D:\\a.jpg"}
+S.devGlass = S.devGlass || {};     // 毛玻璃：true=强制开，false=强制关，缺省=跟随全局
+S.devMenuIdx = 0;
+
+const fileUrl = p => "file:///" + encodeURI(p.replace(/\\/g, "/")).replace(/#/g, "%23");
+
+function deviceImgHtml(key) {
+  // 产品图固定用内置素材，加载失败回退到线稿
+  return '<img src="img/' + key + '.png">';
+}
+// 统一挂载回退：图片加载失败时换回线稿，避免留下空框
+function setGlyph(el, key) {
+  if (!el) return;
+  el.innerHTML = deviceImgHtml(key);
+  const img = el.querySelector("img");
+  if (img) img.addEventListener("error", () => {
+    el.innerHTML = GLYPHS[key === "rapoo" ? "mouse" : "keyboard"];
+  }, { once: true });
+}
+// 单张卡片是否该毛玻璃：显式设置优先，没设置过就跟随全局
+function glassOn(key) {
+  const v = S.devGlass[key];
+  if (v === true || v === false) return v;
+  return document.body.classList.contains("glass-on");
+}
+function applyCardGlass(el, key) {
+  const v = S.devGlass[key];
+  el.classList.toggle("glass", v === true);
+  el.classList.toggle("solid", v === false);
+}
+function applyDeviceGlass() {
+  document.querySelectorAll("#homeGrid .card").forEach(card => {
+    applyCardGlass(card, DEV_KEYS[+card.dataset.idx || 0]);
+  });
+  const panel = document.querySelector("#viewDetail .panel");
+  if (panel) applyCardGlass(panel, DEV_KEYS[S.detailIdx] || "rapoo");
+}
+function setImgboxBg(box, path) {
+  if (!box) return;
+  // 每次重建，避免切图后残留旧层
+  box.querySelectorAll(".bg-blur, .bg-full").forEach(el => el.remove());
+  box.style.backgroundImage = "";
+  if (!path) {
+    box.classList.remove("has-bg");
+    return;
+  }
+  const url = 'url("' + fileUrl(path) + '")';
+  const full = document.createElement("i");
+  full.className = "bg-full";
+  full.style.backgroundImage = url;
+  const blur = document.createElement("i");
+  blur.className = "bg-blur";
+  blur.style.backgroundImage = url;
+  // 先 prepend full 再 prepend blur → DOM 顺序 blur, full, img，同层级下 full 压住 blur
+  box.prepend(full);
+  box.prepend(blur);
+  box.classList.add("has-bg");
+}
+function applyDeviceBg() {
+  document.querySelectorAll("#homeGrid .card").forEach(card => {
+    const key = DEV_KEYS[+card.dataset.idx || 0];
+    setImgboxBg(card.querySelector(".imgbox"), S.devBg[key]);
+  });
+  const panel = document.querySelector("#viewDetail .panel .imgbox");
+  if (panel) setImgboxBg(panel, S.devBg[DEV_KEYS[S.detailIdx] || "rapoo"]);
+}
+function applyDeviceCards() {
+  DEV_KEYS.forEach((key, i) => { setGlyph($("glyph" + i), key); });
+  if (document.getElementById("viewDetail").style.display === "block") {
+    setGlyph($("dGlyph"), DEV_KEYS[S.detailIdx] || "rapoo");
+  }
+  applyDeviceBg();
+  applyDeviceGlass();
+}
+function showDevMenu(x, y) {
+  hideCtx();
+  $("devGlass").checked = glassOn(DEV_KEYS[S.devMenuIdx]);
+  const m = $("devMenu");
+  m.style.display = "block";
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.min(x, window.innerWidth - r.width - 8) + "px";
+  m.style.top = Math.min(y, window.innerHeight - r.height - 8) + "px";
+}
+function hideDevMenu() { $("devMenu").style.display = "none"; }
+
+document.addEventListener("contextmenu", e => {
+  const card = e.target.closest(".card");
+  if (card) {
+    e.preventDefault();
+    S.devMenuIdx = +card.dataset.idx || 0;
+    showDevMenu(e.clientX, e.clientY);
+    return;
+  }
+});
+$("devPick").onclick = async () => {
+  hideDevMenu();
+  const key = DEV_KEYS[S.devMenuIdx];
+  const r = await api().choose_device_bg(key);
+  if (r && r.ok) {
+    S.devBg[key] = r.path;
+    applyDeviceCards();
+    toast("设备背景图已更新");
+  }
+};
+$("devReset").onclick = async () => {
+  hideDevMenu();
+  const key = DEV_KEYS[S.devMenuIdx];
+  try { await api().reset_device_bg(key); } catch (e) {}
+  delete S.devBg[key];
+  applyDeviceCards();
+  toast("已恢复默认背景");
+};
+$("devGlass").onchange = async () => {
+  const key = DEV_KEYS[S.devMenuIdx];
+  const on = $("devGlass").checked;
+  S.devGlass[key] = on;            // 显式记录，覆盖全局设置
+  applyDeviceGlass();
+  try { await api().set_device_glass(key, on); } catch (e) {}
+  toast(on ? "已开启毛玻璃效果" : "已关闭毛玻璃效果");
+};
+
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 3500);
+}
+
+/* ================= 启动 ================= */
+window.addEventListener("pywebviewready", async () => {
+  $("glyph0").innerHTML = GLYPHS.mouse;
+  $("glyph1").innerHTML = GLYPHS.keyboard;
+  try {
+    const st = await api().initial_state();
+    S.auto = st.auto !== false;
+    S.interval = st.interval || 60;
+    S.devBg = st.device_bg || {};
+    S.devGlass = st.device_glass || {};
+    initDark(st.ui_dark);
+    initInterval(st.interval_choices || [], S.interval);
+    initBoot(!!st.autostart);
+    applyBg(st.ui_bg);
+    applyDeviceCards();
+    updateTray(!!st.tray_running);
+    await refresh();
+    scheduleAuto();
+    pollTray();
+  } catch (e) {
+    $("footText").textContent = "初始化失败：" + e;
+  }
+});
+</script>
+</body>
+</html>

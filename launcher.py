@@ -3,10 +3,10 @@
 
 同一个 exe 承担两个角色：
 
-    设备电量.exe            打开简洁面板
+    设备电量.exe            打开 Fluent 面板（WebView2 网页界面）
     设备电量.exe --tray     常驻托盘（开机自启用的就是这个）
 
-脚本模式下这两个角色分别由 my_devices.py / tray_app.py 承担，行为不变。
+脚本模式下这两个角色分别由 ui_fluent.py / tray_app.py 承担，行为不变。
 """
 
 import os
@@ -43,8 +43,8 @@ def main():
         import tray_app
         return tray_app.main()
 
-    import my_devices
-    return my_devices.main()
+    import ui_fluent
+    return ui_fluent.main()
 
 
 if __name__ == "__main__":

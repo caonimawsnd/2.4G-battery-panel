@@ -66,6 +66,15 @@ NIF_MESSAGE, NIF_ICON, NIF_TIP = 0x01, 0x02, 0x04
 
 SW_RESTORE = 9
 
+# 托盘右键菜单
+MF_STRING = 0x00000000
+MF_SEPARATOR = 0x00000800
+TPM_RIGHTBUTTON = 0x0002
+TPM_NONOTIFY = 0x0080
+TPM_RETURNCMD = 0x0100
+MENU_OPEN_UI = 1
+MENU_QUIT = 2
+
 # --------------------------------------------------------------------------
 # Win32 结构体与原型
 # --------------------------------------------------------------------------
@@ -143,6 +152,19 @@ USER32.TranslateMessage.restype = wintypes.BOOL
 USER32.TranslateMessage.argtypes = [ctypes.POINTER(MSG)]
 USER32.DispatchMessageW.restype = ctypes.c_ssize_t
 USER32.DispatchMessageW.argtypes = [ctypes.POINTER(MSG)]
+USER32.CreatePopupMenu.restype = ctypes.c_void_p
+USER32.CreatePopupMenu.argtypes = []
+USER32.AppendMenuW.restype = wintypes.BOOL
+USER32.AppendMenuW.argtypes = [ctypes.c_void_p, wintypes.UINT,
+                               ctypes.c_size_t, wintypes.LPCWSTR]
+USER32.TrackPopupMenu.restype = ctypes.c_int      # TPM_RETURNCMD 时返回菜单项 ID
+USER32.TrackPopupMenu.argtypes = [ctypes.c_void_p, wintypes.UINT,
+                                  ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                  ctypes.c_void_p, ctypes.c_void_p]
+USER32.DestroyMenu.restype = wintypes.BOOL
+USER32.DestroyMenu.argtypes = [ctypes.c_void_p]
+USER32.GetCursorPos.restype = wintypes.BOOL
+USER32.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
 
 SHELL32.Shell_NotifyIconW.restype = wintypes.BOOL
 SHELL32.Shell_NotifyIconW.argtypes = [wintypes.DWORD,
@@ -191,6 +213,7 @@ class TrayApp:
         self.wndproc_ref = None
         self.busy = False
         self.levels = {k: (None, "正在读取…") for _, k, _, _ in TRAY_ICONS}
+        self.tray_visible = {k: False for _, k, _, _ in TRAY_ICONS}
         self.icons_added = False
         self.taskbar_created_msg = USER32.RegisterWindowMessageW("TaskbarCreated")
         self.msg_quit = USER32.RegisterWindowMessageW(tc.MSG_QUIT)
@@ -210,13 +233,14 @@ class TrayApp:
     # ---- 图标 ----------------------------------------------------------
     @staticmethod
     def _color(level: Optional[int]) -> tuple[int, int, int]:
+        """托盘图标配色，与面板保持一致（绿 / 黄 / 红）。"""
         if level is None:
-            return (150, 155, 160)
+            return (143, 149, 158)
         if level >= 60:
-            return (93, 220, 138)
+            return (74, 222, 128)
         if level >= 30:
-            return (245, 196, 81)
-        return (255, 107, 107)
+            return (251, 191, 36)
+        return (248, 113, 113)
 
     def _nid(self, uID: int):
         nid = NOTIFYICONDATAW()
@@ -230,31 +254,55 @@ class TrayApp:
     def _apply_icon(self, action: int, uID: int, key: str, title: str,
                     plate: bool) -> bool:
         level, err = self.levels[key]
-        text = str(level) if level is not None else "--"
         nid = self._nid(uID)
-        nid.hIcon = win_icon.make_hicon(text, self._color(level), plate)
+        nid.hIcon = win_icon.make_ring_hicon(level, self._color(level))
         nid.szTip = (f"{title}：{level}%（{time.strftime('%H:%M:%S')} 更新）"
                      if level is not None else f"{title}：{err or '未知'}")
         return bool(SHELL32.Shell_NotifyIconW(action, ctypes.byref(nid)))
 
+    def _connected(self, key: str) -> bool:
+        """设备是否已连接。
+
+        鼠标：读到电量广播即在线。键盘：协议未标定读不到电量，
+        但"接收器已插入且键盘侧有报文"也视为已连接。
+        """
+        level, msg = self.levels[key]
+        if level is not None:
+            return True
+        return "有报文" in (msg or "")
+
+    def _remove_icon(self, uID: int) -> None:
+        nid = self._nid(uID)
+        nid.uFlags = 0
+        SHELL32.Shell_NotifyIconW(NIM_DELETE, ctypes.byref(nid))
+
     def add_icons(self) -> None:
+        """任务栏重建后恢复当前可见的图标。"""
         for uID, key, title, plate in TRAY_ICONS:
-            ok = self._apply_icon(NIM_ADD, uID, key, title, plate)
-            self.log(f"NIM_ADD {title} -> {'ok' if ok else '失败'}")
+            if self.tray_visible.get(key):
+                ok = self._apply_icon(NIM_ADD, uID, key, title, plate)
+                self.log(f"NIM_ADD {title} -> {'ok' if ok else '失败'}")
         self.icons_added = True
 
     def update_icons(self) -> None:
-        if not self.icons_added:
-            self.add_icons()
-            return
+        """按连接状态增/删/改图标：只显示已连接的设备。"""
         for uID, key, title, plate in TRAY_ICONS:
-            self._apply_icon(NIM_MODIFY, uID, key, title, plate)
+            connected = self._connected(key)
+            visible = self.tray_visible.get(key, False)
+            if connected and not visible:
+                if self._apply_icon(NIM_ADD, uID, key, title, plate):
+                    self.tray_visible[key] = True
+                    self.log(f"{title} 已连接，显示托盘图标")
+            elif connected and visible:
+                self._apply_icon(NIM_MODIFY, uID, key, title, plate)
+            elif not connected and visible:
+                self._remove_icon(uID)
+                self.tray_visible[key] = False
+                self.log(f"{title} 已断开，隐藏托盘图标")
 
     def remove_icons(self) -> None:
         for uID, _, _, _ in TRAY_ICONS:
-            nid = self._nid(uID)
-            nid.uFlags = 0
-            SHELL32.Shell_NotifyIconW(NIM_DELETE, ctypes.byref(nid))
+            self._remove_icon(uID)
         self.icons_added = False
 
     # ---- 定时器 / 刷新 --------------------------------------------------
@@ -332,12 +380,33 @@ class TrayApp:
             # DestroyWindow 会触发 WM_DESTROY -> PostQuitMessage，消息循环随之结束
             USER32.DestroyWindow(self.hwnd)
 
+    def show_context_menu(self) -> None:
+        """托盘图标右键菜单：打开主界面 / 退出。"""
+        menu = USER32.CreatePopupMenu()
+        if not menu:
+            return
+        USER32.AppendMenuW(menu, MF_STRING, MENU_OPEN_UI, "打开主界面")
+        USER32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
+        USER32.AppendMenuW(menu, MF_STRING, MENU_QUIT, "退出")
+        pt = wintypes.POINT()
+        USER32.GetCursorPos(ctypes.byref(pt))
+        # 必须先 SetForegroundWindow，点击菜单外区域才能正常关闭菜单
+        USER32.SetForegroundWindow(self.hwnd)
+        cmd = USER32.TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_NONOTIFY
+                                    | TPM_RETURNCMD, pt.x, pt.y,
+                                    0, self.hwnd, None)
+        USER32.DestroyMenu(menu)
+        if cmd == MENU_OPEN_UI:
+            self.open_ui()
+        elif cmd == MENU_QUIT:
+            self.quit()
+
     # ---- 窗口过程 -------------------------------------------------------
     def wnd_proc(self, hwnd, msg, wparam, lparam):
         if msg == MSG_TRAY_CALLBACK:
             event = int(lparam) & 0xFFFF
             if event == WM_RBUTTONUP:
-                self.open_ui()                     # 右键：直接打开界面
+                self.show_context_menu()           # 右键：弹出菜单
             elif event in (WM_LBUTTONUP, WM_LBUTTONDBLCLK):
                 self.refresh_now()                 # 左键：立刻刷新
             return 0
@@ -432,7 +501,7 @@ def main() -> int:
     tc.write_pid()
 
     try:
-        USER32.SetProcessDPIAware()            # 图标不糊
+        tc.enable_dpi_awareness()              # 图标不糊 + 高分屏原生渲染
     except Exception:
         pass
 
