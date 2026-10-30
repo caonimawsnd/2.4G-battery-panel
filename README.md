@@ -1,27 +1,100 @@
 # 2.4G 外设电量面板
 
-Windows 上读取 2.4G 无线外设电量的小工具。**纯 ctypes 调系统 DLL，零第三方依赖**——
-不用 hidapi、不用 pystray、不用 Pillow、不用 pywin32，装了 Python 就能跑。
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](#环境要求)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D4?logo=windows&logoColor=white)](#环境要求)
+[![No Dependencies](https://img.shields.io/badge/runtime-zero%20deps-2ea44f)](#安装与运行)
 
-## ⚠️ 只支持这两台设备
+Windows 上读取 2.4G 无线外设电量的小工具。**电量读取全部是纯 ctypes 调系统 DLL**——
+不用 hidapi、不用 pystray、不用 pywin32，装了 Python 就能跑。
 
-这**不是一个通用工具**。协议是逆向我们这两台具体设备得到的——换成别的鼠标或耳机，
+<p align="center">
+  <img src="docs/screenshots/home-light.webp" width="880" alt="主界面：两张设备卡片，毛玻璃效果 + 自定义壁纸">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/home-dark.webp" width="433" alt="深色主题">
+  <img src="docs/screenshots/device-menu.webp" width="433" alt="设备卡片右键菜单：自定义背景图 / 毛玻璃开关">
+</p>
+
+<p align="center">
+  <sub>雷柏 VT3S（76%）+ 狼蛛 F87（42%）· 毛玻璃卡片 · 每张卡片可单独设背景图和毛玻璃</sub>
+</p>
+
+## ⚠️ 只支持特定设备
+
+这**不是一个通用工具**。协议是逆向具体设备得到的——换成别的鼠标或键盘，
 大概率一个字节都读不出来（界面会显示「没有可用的读取方式」）。
+
+当前版本适配的是这两台：
+
+| 设备 | VID:PID | 读取方式 |
+|---|---|---|
+| 雷柏 VT3S 鼠标 | `24AE:184C` | 私有状态广播（`BB B0`）：电量 + 当前 DPI + 连接模式。**被动接收**，不主动查询，要等几秒 |
+| 狼蛛 F87 键盘（2.4G 接收器） | `3554:FA09` | 接收器能识别，**电量协议尚未标定**，读不到属正常现象 |
+
+代码里还保留了上游逆向出的两套完整协议，有对应设备可直接用：
 
 | 设备 | VID:PID | 读取方式 |
 |---|---|---|
 | ATK / VXE 无线鼠标 | `373B:1216` | usage page `0xFF05`，Report ID `0x08`，请求 `7D 72 02 00 01 07 01`，电量取回复第 7 字节 |
 | DARKRIM SHADOW 耳机（杰理方案 dongle） | `3654:6901` | 私有 TLV 协议：`CRC16-CCITT-FALSE` over `帧[1:10+len]`（大端），TLV `0x01` 即电量 |
 
-**你的设备不在这两行里？** 别硬改这个仓库，往下看「用 prompt 做一份你自己的」。
+**你的设备不在上面任何一行里？** 别硬改这个仓库，往下看「用 prompt 做一份你自己的」。
 
-## 使用方法
+## 安装与运行
+
+### 环境要求
+
+- Windows 10 / 11
+- Python 3.10+（官方安装包自带 `tkinter`）
+
+### 方式一：源码直接跑（零依赖）
 
 ```bash
+git clone https://github.com/caonimawsnd/2.4G-battery-panel.git
+cd 2.4G-battery-panel
 python my_devices.py
 ```
 
-面板里会显示两台设备的电量，默认自动刷新，底部可以改刷新间隔。
+这是 tkinter 面板，**只用标准库**，不需要 `pip install` 任何东西。
+面板里显示两台设备的电量，默认自动刷新，底部可以改刷新间隔。
+
+### 方式二：Fluent 面板（WebView2，界面更好看）
+
+```bash
+pip install pywebview
+python ui_fluent.py
+```
+
+需要系统里有 WebView2 运行时——Win11 自带；Win10 装了新版 Edge 就有。
+`ui_fluent.py` 复用 `my_devices.py` 的读取逻辑，所以要在项目目录里跑。
+
+### 方式三：打包成 exe
+
+```bash
+pip install pyinstaller pywebview pillow pythonnet clr_loader
+python build.py
+```
+
+产物在 `dist/`：
+
+```
+dist/
+├── 设备电量.exe        # 双击打开面板
+└── _internal/          # 运行时依赖，必须和 exe 放在一起
+```
+
+| 命令 | 作用 |
+|---|---|
+| `设备电量.exe` | 打开面板 |
+| `设备电量.exe --tray` | 常驻托盘（开机自启用的就是这个） |
+| `设备电量.exe --quit` | 退出托盘 |
+| `设备电量.exe --status` | 打印当前配置和运行状态 |
+
+整个 `dist/` 目录拷走就能用，目标机不需要装 Python。
+
+### 其他用法
 
 - 只想看一眼：`python my_devices.py --once` —— 打印后退出
 - 想摸新设备的协议：`python app.py` —— 完整调试版，可枚举接口、转储 Feature Report、探测 Report ID、手动标定
@@ -169,11 +242,6 @@ prompt 里已经写好了硬性约束、协议模板、7 条会踩的坑和验�
 - 适配本机设备：雷柏 2.4G 鼠标（`24AE:184C`，被动状态广播读电量）、狼蛛 F87 接收器框架
 - 打包为 exe（`--onedir`），面板改为 WebView2 界面并强制离线
 
-## 环境要求
-
-- Windows 10 / 11
-- Python 3.10+（需要 `tkinter`，官方安装包默认自带）
-
 ## 目录说明
 
 | 文件 | 说明 |
@@ -183,12 +251,16 @@ prompt 里已经写好了硬性约束、协议模板、7 条会踩的坑和验�
 | `darkrim_proto.py` | DARKRIM 杰理方案私有协议（帧构造 / CRC / TLV 解析） |
 | `bt_battery.py` | 蓝牙耳机 HFP 电量（未公开 PnP 属性） |
 | `my_devices.py` | **主界面**（简洁面板） |
+| `ui_fluent.py` | Fluent 面板后端（pywebview + WebView2，强制离线） |
+| `ui/index.html` | Fluent 面板界面（单文件 HTML/CSS/JS，无外部依赖） |
 | `tray_app.py` | 托盘程序（`Shell_NotifyIconW` + `SetTimer`，空闲几乎不占 CPU） |
 | `tray_common.py` | 配置、开机自启、进程间消息 |
 | `win_icon.py` | 点阵数字 → ICO → HICON（图标就是电量数字） |
 | `win_link.py` | 软连接：符号链接 / 目录 junction / 硬链接，按权限自动降级 |
 | `win_shell.py` | 已知文件夹路径 + 用 ctypes COM 创建 `.lnk` |
 | `app.py` | 完整调试版界面 |
+| `build.py` | PyInstaller 打包脚本（`--onedir`，产物 49MB） |
+| `tools/` | 探测脚本、图标生成、冒烟测试、README 截图生成 |
 | `PROMPT.md` | 把整个项目整理成一份可复用的提示词 |
 
 ## 两个值得一提的实现细节
@@ -202,10 +274,16 @@ prompt 里已经写好了硬性约束、协议模板、7 条会踩的坑和验�
 
 ## 隐私
 
-- **不联网**：没有任何 http / socket / urllib / 遥测调用，所有读取都在本地 HID 层完成。
+- **不联网**：代码里没有任何 http / socket / urllib / 遥测调用，电量读取全在本地 HID 层完成。
+- **面板也不联网**：Fluent 面板内嵌的 Edge（WebView2）引擎本身会连微软的遥测和组件更新端点，
+  已通过启动参数全部禁用。实测常驻后该进程 **0 条 TCP 连接、0 个 UDP 端点**。
 - **不写日志**：默认不产生任何日志文件；只有 `--debug` 时才往控制台打印。
 - **不上传**：设备序列号、地址等信息只在内存里用，不落盘。
 
 ## 说明
 
 私有协议部分是通过逆向厂商软件 + 抓包分析得到的，仅供学习与个人使用。
+
+## License
+
+[MIT](LICENSE) © 木子-楊
