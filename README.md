@@ -70,6 +70,12 @@ python ui_fluent.py
 需要系统里有 WebView2 运行时——Win11 自带；Win10 装了新版 Edge 就有。
 `ui_fluent.py` 复用 `my_devices.py` 的读取逻辑，所以要在项目目录里跑。
 
+点开设备卡片进详情页，还有回报率实测、系统鼠标设置、协议说明：
+
+<p align="center">
+  <img src="docs/screenshots/detail.webp" width="780" alt="设备详情页：回报率实测、系统鼠标设置、协议说明">
+</p>
+
 ### 方式三：打包成 exe
 
 ```bash
